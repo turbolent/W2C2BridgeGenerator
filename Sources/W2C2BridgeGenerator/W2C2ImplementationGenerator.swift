@@ -9,15 +9,23 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     public var output: Writer<Output>
     public let escapedModuleName: String
     public let generateComments: Bool
+    public let generateBigEndian: Bool
+
     private var coreFoundationTypeNames: Set<String> = []
     private var structTypes: [String: StructType] = [:]
 
     private var reportedUnsupportedDefinitionKinds: Set<String> = []
 
-    public init(output: Output, moduleName: String, generateComments: Bool) {
+    public init(
+        output: Output,
+        moduleName: String,
+        generateComments: Bool,
+        generateBigEndian: Bool
+    ) {
         self.output = Writer(stream: output)
         self.escapedModuleName = Self.convert(name: moduleName)
         self.generateComments = generateComments
+        self.generateBigEndian = generateBigEndian
     }
 
     private func report(_ message: some StringProtocol) {
@@ -189,7 +197,10 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             return
         }
 
-        guard isBridgeable(structType: type) else {
+        guard isBridgeable(
+            structType: type,
+            generateBigEndian: generateBigEndian
+        ) else {
             report("cannot generate struct '\(name)': unbridgeable type")
             return
         }
@@ -204,9 +215,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         // TODO: implementation currently uses host types,
         //   assumes host matches client, i.e. 32-bit little-endian.
         //   Add support for big-endian and 64-bit.
-        //   Write structs in WebAssembly/w2c2 memory format:
-        //   32-bit, "host-endian", i.e. "negative memory addressing"
-
     }
 
     public mutating func generate(class: BridgeSupportParser.Class) {
@@ -285,6 +293,114 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         )
     }
 
+    private func convertBigEndian(
+        type32: BridgeSupportParser.`Type`,
+        name: String,
+        conversionStatements: inout [String]
+    ) -> Bool {
+
+        func addConversion(type: String) {
+            conversionStatements.append("swap_\(type)(&\(name));\n")
+        }
+
+        switch type32 {
+            case .Void, .ID, .Class, .Selector:
+                // NO-OP
+                return true
+
+            case .Bool, .Char, .UnsignedChar:
+                // size = 1. NO-OP
+                return true
+
+            case .Short:
+                addConversion(type: "s")
+                return true
+
+            case .UnsignedShort:
+                addConversion(type: "S")
+                return true
+
+            case .Int:
+                addConversion(type: "i")
+                return true
+
+            case .UnsignedInt:
+                addConversion(type: "I")
+                return true
+
+            case .Long:
+                addConversion(type: "l")
+                return true
+
+            case .UnsignedLong:
+                addConversion(type: "L")
+                return true
+
+            case .LongLong:
+                addConversion(type: "q")
+                return true
+
+            case .UnsignedLongLong:
+                addConversion(type: "Q")
+                return true
+
+            case .Float:
+                addConversion(type: "f")
+                return true
+
+            case .Double:
+                addConversion(type: "d")
+                return true
+
+            case let .Struct(structType):
+                let structName = structType.name
+                let declaredStructType = structTypes[structName]
+
+                for (fieldIndex, field) in structType.fields.enumerated() {
+                    var fieldName = field.name
+                    if fieldName.isEmpty, let declaredField = declaredStructType?.fields[fieldIndex] {
+                        fieldName = declaredField.name
+                    }
+
+                    guard !fieldName.isEmpty else {
+                        return false
+                    }
+
+                    guard convertBigEndian(
+                        type32: field.type32!,
+                        name: "\(name).\(fieldName)",
+                        conversionStatements: &conversionStatements
+                    ) else {
+                        return false
+                    }
+                }
+
+                return true
+
+            case .Union:
+                // TODO: implement (convert first field?), then enable in isBridgeable
+                fatalError("unreachable. should be rejected by isBridgeable")
+
+            case .ComplexFloat,.ComplexDouble:
+                // TODO: implement, then enable in isBridgeable
+                fatalError("unreachable. should be rejected by isBridgeable")
+
+            case .FunctionType, .Unknown, .Pointer:
+                fatalError("unreachable. should be rejected by isBridgeable")
+
+            case .Array, .Bitfield:
+                // TODO: implement, then enable in isBridgeable
+                fatalError("unreachable. should be rejected by isBridgeable")
+
+            case let .Const(type):
+                return convertBigEndian(
+                    type32: type,
+                    name: name,
+                    conversionStatements: &conversionStatements
+                )
+        }
+    }
+
     private mutating func generateFunction(
         kind: FunctionKind,
         identifier: String,
@@ -301,6 +417,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             functionType: originalFunctionType,
             kind: kind,
             coreFoundationTypeNames: coreFoundationTypeNames,
+            generateBigEndian: generateBigEndian,
             report: report
         ) else {
             return
@@ -316,7 +433,8 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         // Parameters
 
         let instanceParameterName = generatorPrefix + "instance"
-        let resultParameterName = generatorPrefix + "result"
+        let resultParameterName = generatorPrefix + "resultIndirect"
+        let resultVariableName = generatorPrefix + "result"
         let memoryVariableName = generatorPrefix + "mem"
         let selfParameterName = generatorPrefix + "self"
         let classParameterName = generatorPrefix + "class"
@@ -384,7 +502,8 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
         var isMemoryAccessed = false
         var temporaryCount = 0
-        var conversionStatements: [String] = []
+        var argumentConversionStatements: [String] = []
+        var returnValueConversionStatements: [String] = []
 
         func newTemporary() -> String {
             temporaryCount += 1
@@ -430,7 +549,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 if argument.type32?.isPointerKinded ?? false {
                     // Direct passage of pointer
 
-                    // TODO: add big-endian support
                     let temp = newTemporary()
                     let isPointer = argument.type32?.isPointer ?? false
                     let isCoreFoundationType = argument.declaredType.map(coreFoundationTypeNames.contains) ?? false
@@ -441,7 +559,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                         conversionStatement.append(parameterName)
                     }
                     conversionStatement.append(";\n")
-                    conversionStatements.append(conversionStatement)
+                    argumentConversionStatements.append(conversionStatement)
                     callArguments.append(temp)
 
                 } else {
@@ -451,6 +569,8 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     if case let .Struct(structType)? = argument.type32,
                         structType.fields.count == 1
                     {
+                        // TODO: add big-endian support
+
                         callArguments.append("(\(argumentType)){\(parameterName)}")
                     } else {
                         callArguments.append(parameterName)
@@ -459,9 +579,18 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             } else {
                 // Indirect passage
 
-                // TODO: add big-endian support
                 let temp = newTemporary()
-                conversionStatements.append("\(argumentType) \(temp) = \(newMemoryDereference(type: argumentType, offset: parameterName));\n")
+                argumentConversionStatements.append("\(argumentType) \(temp) = \(newMemoryDereference(type: argumentType, offset: parameterName));\n")
+                if generateBigEndian {
+                    guard convertBigEndian(
+                        type32: argument.type32!,
+                        name: temp,
+                        conversionStatements: &argumentConversionStatements
+                    ) else {
+                        report("cannot generate \(kind): cannot convert to big-endian, missing type information: \(argument)")
+                        return
+                    }
+                }
                 callArguments.append(temp)
             }
         }
@@ -500,6 +629,8 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 if case let .Struct(structType)? = originalFunctionType.returnValue?.type32,
                     structType.fields.count == 1
                 {
+                    // TODO: add big-endian support
+
                     guard let structType = structTypes[structType.name] else {
                         report("cannot generate \(kind): directly passed return value for single-field struct of unknown type: \(structType.name)")
                         return
@@ -516,10 +647,19 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 }
 
             } else {
-                // TODO: add big-endian support
                 returnPrefix = "\(newMemoryDereference(type: resultType, offset: resultParameterName)) = "
+                if generateBigEndian {
+                    let returnValue = originalFunctionType.returnValue!
+                    guard convertBigEndian(
+                        type32: returnValue.type32!,
+                        name: resultVariableName,
+                        conversionStatements: &returnValueConversionStatements
+                    ) else {
+                        report("cannot generate \(kind): cannot convert to big-endian (missing type information): \(returnValue)")
+                        return
+                    }
+                }
             }
-
         }
 
         // Write function
@@ -539,15 +679,15 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     Raw("wasmMemory* \(memoryVariableName) = W2C2_BRIDGE_MEM(\(instanceParameterName));\n")
                 }
 
-                for conversionStatement in conversionStatements {
+                for conversionStatement in argumentConversionStatements {
                     Raw(conversionStatement)
                 }
 
                 // Call statement: call function with arguments,
                 // and return result if needed
                 Concat {
-                    if let returnPrefix {
-                        Raw(returnPrefix)
+                    if returnPrefix != nil {
+                        Raw("\(resultType) \(resultVariableName) = ")
                     }
 
                     switch kind {
@@ -590,6 +730,14 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     }
 
                     Raw(";\n")
+                }
+
+                for conversionStatement in returnValueConversionStatements {
+                    Raw(conversionStatement)
+                }
+
+                if let returnPrefix {
+                    Raw("\(returnPrefix)\(resultVariableName);\n")
                 }
             }
 
