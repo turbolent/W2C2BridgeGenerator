@@ -145,6 +145,9 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     public mutating func generate(definitions: [Definition]) {
         output.write {
             Include(file: "w2c2_base.h", style: .Quotes)
+
+            Raw("extern wasmMemory* w2c2BridgeMemory(void* instance);");
+
             Newline
         }
 
@@ -676,7 +679,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 parameters: allParameters
             ) {
                 if isMemoryAccessed {
-                    Raw("wasmMemory* \(memoryVariableName) = W2C2_BRIDGE_MEM(\(instanceParameterName));\n")
+                    Raw("wasmMemory* \(memoryVariableName) = w2c2BridgeMemory(\(instanceParameterName));\n")
                 }
 
                 for conversionStatement in argumentConversionStatements {
