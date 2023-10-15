@@ -145,9 +145,9 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     public mutating func generate(definitions: [Definition]) {
         output.write {
             Include(file: "w2c2_base.h", style: .Quotes)
+            Newline
 
-            Raw("extern wasmMemory* w2c2BridgeMemory(void* instance);");
-
+            Raw("extern wasmMemory* w2c2BridgeMemory(void* instance);\n");
             Newline
         }
 
