@@ -53,7 +53,7 @@ extension ReturnValue: CustomStringConvertible {
         } else if let typeDeclaration = type32?.typeDeclaration {
             typeDeclaration.write(identifier: nil, to: &result)
         } else {
-            debugPrint(self, to: &result)
+            return "missing type"
         }
         return result
     }
@@ -75,7 +75,7 @@ extension Argument: CustomStringConvertible {
         } else if let typeDeclaration = type32?.typeDeclaration {
             typeDeclaration.write(identifier: nil, to: &result)
         } else {
-            debugPrint(self, to: &result)
+            return "missing type"
         }
         return result
     }

@@ -1,15 +1,21 @@
 import BridgeSupportParser
 import CWriter
 
-public func isBridgeable(type: BridgeSupportParser.`Type`, allowPointer: Bool) -> Bool {
+public func isBridgeable(
+    type: BridgeSupportParser.`Type`,
+    allowPointer: Bool,
+    generateBigEndian: Bool
+) -> Bool {
     switch type {
         case .Pointer(let type):
             guard allowPointer else {
                 return false
             }
+
             return isBridgeable(
                 type: type,
-                allowPointer: false
+                allowPointer: false,
+                generateBigEndian: generateBigEndian
             )
 
         case .FunctionType, .Unknown:
@@ -22,73 +28,113 @@ public func isBridgeable(type: BridgeSupportParser.`Type`, allowPointer: Bool) -
         case .Char, .Int, .Short, .Long, .LongLong,
             .UnsignedChar, .UnsignedInt, .UnsignedShort, .UnsignedLong, .UnsignedLongLong,
             .Float, .Double,
-            .Bool, .Void, .Bitfield,
+            .Bool, .Void,
             // pointers, but allocated on host side
             .ID, .Class, .Selector:
 
             return true
 
+        case .Bitfield:
+            // TODO: add support in convertBigEndian
+            return !generateBigEndian
+
         case .Array(let arrayType):
+            // TODO: add support in convertBigEndian
+            if generateBigEndian {
+                return false
+            }
+
             return isBridgeable(
                 type: arrayType.type,
-                allowPointer: false
+                allowPointer: false,
+                generateBigEndian: generateBigEndian
             )
 
         case .Struct(let structType):
-            return isBridgeable(structType: structType)
+            return isBridgeable(
+                structType: structType,
+                generateBigEndian: generateBigEndian
+            )
 
         case .Union(let unionType):
-            return isBridgeable(unionType: unionType)
+            return isBridgeable(
+                unionType: unionType,
+                generateBigEndian: generateBigEndian
+            )
 
         case .Const(let type):
             return isBridgeable(
                 type: type,
-                allowPointer: allowPointer
+                allowPointer: allowPointer,
+                generateBigEndian: generateBigEndian
             )
     }
 }
 
-public func isBridgeable(structType: StructType) -> Bool {
+public func isBridgeable(
+    structType: StructType,
+    generateBigEndian: Bool
+) -> Bool {
     return structType.fields.allSatisfy { field in
         guard let type = field.type32 else {
             return false
         }
         return isBridgeable(
             type: type,
-            allowPointer: false
+            allowPointer: false,
+            generateBigEndian: generateBigEndian
         )
     }
 }
 
-public func isBridgeable(unionType: UnionType) -> Bool {
+public func isBridgeable(
+    unionType: UnionType,
+    generateBigEndian: Bool
+) -> Bool {
+    // TODO: add support in convertBigEndian
+    if generateBigEndian {
+        return false
+    }
+
     return unionType.fields.allSatisfy { field in
         guard let type = field.type32 else {
             return false
         }
         return isBridgeable(
             type: type,
-            allowPointer: false
+            allowPointer: false,
+            generateBigEndian: generateBigEndian
         )
     }
 }
 
-public func isBridgeable(returnValue: ReturnValue, allowPointer: Bool) -> Bool {
+public func isBridgeable(
+    returnValue: ReturnValue,
+    allowPointer: Bool,
+    generateBigEndian: Bool
+) -> Bool {
     guard let type32 = returnValue.type32 else {
         return false
     }
     return isBridgeable(
         type: type32,
-        allowPointer: allowPointer
+        allowPointer: allowPointer,
+        generateBigEndian: generateBigEndian
     )
 }
 
-public func isBridgeable(argument: Argument, allowPointer: Bool) -> Bool {
+public func isBridgeable(
+    argument: Argument,
+    allowPointer: Bool,
+    generateBigEndian: Bool
+) -> Bool {
     guard let type32 = argument.type32 else {
         return false
     }
     return isBridgeable(
         type: type32,
-        allowPointer: allowPointer
+        allowPointer: allowPointer,
+        generateBigEndian: generateBigEndian
     )
 }
 
@@ -96,20 +142,27 @@ func checkBridgeable(
     functionType: FunctionType,
     kind: FunctionKind,
     coreFoundationTypeNames: Set<String>,
+    generateBigEndian: Bool,
     report: (String) -> Void
 ) -> Bool {
+
+    func isCoreFoundationType(declaredType: String?) -> Bool {
+        guard let declaredType else {
+            return false
+        }
+        return coreFoundationTypeNames.contains(declaredType)
+    }
 
     // Ensure return value is bridgeable
 
     if let returnValue = functionType.returnValue {
 
-        let isCoreFoundationType = returnValue.declaredType
-            .map(coreFoundationTypeNames.contains)
-            ?? false
+        let allowPointer = isCoreFoundationType(declaredType: returnValue.declaredType)
 
         guard isBridgeable(
             returnValue: returnValue,
-            allowPointer: isCoreFoundationType
+            allowPointer: allowPointer,
+            generateBigEndian: generateBigEndian
         ) else {
             report("cannot generate \(kind): unbridgeable return value: \(returnValue)")
             return false
@@ -118,10 +171,21 @@ func checkBridgeable(
 
     // Ensure all arguments are bridgeable
 
+    // When generating code for little-endian systems, a pointer to any size is acceptable,
+    // because the memory of the WebAssembly module is layed out in little-endian already.
+    // TODO: allow pointer to 1-sized type for big-endian, e.g. char pointer (incl. const)
+    let allowPointerArguments = !generateBigEndian
+
     for argument in functionType.arguments {
+
+        let allowPointer = allowPointerArguments
+            || isCoreFoundationType(declaredType: argument.declaredType)
+            || argument.type32.map(isCharPointer) ?? false
+
         guard isBridgeable(
             argument: argument,
-            allowPointer: true
+            allowPointer: allowPointer,
+            generateBigEndian: generateBigEndian
         ) else {
             report("cannot generate \(kind): unbridgeable argument: \(argument)")
             return false
@@ -284,5 +348,25 @@ extension BridgeSupportParser.`Type` {
                 // TODO:
                 return nil
         }
+    }
+}
+
+func isCharPointer(_ type: BridgeSupportParser.`Type`) -> Bool {
+    func isChar(_ type: BridgeSupportParser.`Type`) -> Bool {
+        return type == .Char
+            || type == .UnsignedChar
+    }
+
+    switch type {
+        case let .Pointer(type),
+            let .Const(.Pointer(type)):
+
+            if case let .Const(type) = type {
+                return isChar(type)
+            }
+            return isChar(type)
+
+        default:
+            return false
     }
 }

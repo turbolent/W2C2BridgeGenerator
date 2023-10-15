@@ -46,6 +46,13 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
     )
     var generateComments: Bool = false
 
+    @ArgumentParser.Flag(
+        name: .customLong("big-endian"),
+        inversion: .prefixedNo,
+        help: "generate implementation for big-endian system"
+    )
+    var generateBigEndian: Bool = false
+
     func createFile(_ filePath: FilePath) throws -> FileDescriptor {
         try FileDescriptor.open(
             filePath,
@@ -77,7 +84,8 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
             var w2c2ImplementationGenerator = W2C2ImplementationGenerator(
                 output: w2c2ImplementationFile,
                 moduleName: moduleName,
-                generateComments: generateComments
+                generateComments: generateComments,
+                generateBigEndian: generateBigEndian
             )
             w2c2ImplementationGenerator.generate(definitions: definitions)
         }
@@ -92,7 +100,8 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
 
             var cInterfaceGenerator = CInterfaceGenerator(
                 output: cInterfaceFile,
-                generateComments: generateComments
+                generateComments: generateComments,
+                generateBigEndian: generateBigEndian
             )
             cInterfaceGenerator.generate(definitions: definitions)
         }

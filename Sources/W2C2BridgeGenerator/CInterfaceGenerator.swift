@@ -34,14 +34,21 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
     public var output: Writer<Output>
     public let generateComments: Bool
+    public let generateBigEndian: Bool
+
     private var reportedUnsupportedDefinitionKinds: Set<String> = []
     private var coreFoundationTypeNames: Set<String> = []
     private var declaredTypeTypeDefs: Set<String> = []
     private var declaredClasses: Set<String> = []
 
-    public init(output: Output, generateComments: Bool) {
+    public init(
+        output: Output,
+        generateComments: Bool,
+        generateBigEndian: Bool
+    ) {
         self.output = Writer(stream: output)
         self.generateComments = generateComments
+        self.generateBigEndian = generateBigEndian
     }
 
     private func report(_ message: some StringProtocol) {
@@ -375,7 +382,10 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             return
         }
 
-        guard isBridgeable(structType: type) else {
+        guard isBridgeable(
+            structType: type,
+            generateBigEndian: generateBigEndian
+        ) else {
             report("cannot generate struct '\(typedefName)': unbridgeable type")
             return
         }
@@ -481,6 +491,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             functionType: functionType,
             kind: kind,
             coreFoundationTypeNames: coreFoundationTypeNames,
+            generateBigEndian: generateBigEndian,
             report: report
         ) else {
             return
@@ -535,6 +546,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             functionType: functionType,
             kind: kind,
             coreFoundationTypeNames: coreFoundationTypeNames,
+            generateBigEndian: generateBigEndian,
             report: report
         ) else {
             return
@@ -621,6 +633,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             functionType: functionType,
             kind: kind,
             coreFoundationTypeNames: coreFoundationTypeNames,
+            generateBigEndian: generateBigEndian,
             report: report
         ) else {
             return
@@ -658,6 +671,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             functionType: functionType,
             kind: kind,
             coreFoundationTypeNames: coreFoundationTypeNames,
+            generateBigEndian: generateBigEndian,
             report: report
         ) else {
             return
