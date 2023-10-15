@@ -28,7 +28,7 @@ Help:
 ```
 OVERVIEW: Generate bindings for w2c2 from a bridgesupport file
 
-USAGE: w2c2-bridge-gen [--module-name <module-name>] [--w2c2-implementation <w2c2-implementation>] [--c-interface <c-interface>] <input-files> ... [--comments] [--no-comments]
+USAGE: w2c2-bridge-gen [--module-name <module-name>] [--w2c2-implementation <w2c2-implementation>] [--c-interface <c-interface>] <input-files> ... [--comments] [--no-comments] [--big-endian] [--no-big-endian]
 
 ARGUMENTS:
   <input-files>           bridgesupport files
@@ -42,5 +42,7 @@ OPTIONS:
                           generate C interface file (header)
   --comments/--no-comments
                           generate comments (default: --no-comments)
+  --big-endian/--no-big-endian
+                          generate implementation for big-endian system (default: --no-big-endian)
   -h, --help              Show help information.
 ```
