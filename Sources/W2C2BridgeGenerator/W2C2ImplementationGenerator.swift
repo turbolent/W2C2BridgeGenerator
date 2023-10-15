@@ -690,7 +690,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 // and return result if needed
                 Concat {
                     if returnPrefix != nil {
-                        Raw("\(resultType) \(resultVariableName) = ")
+                        Raw("\(resultType) \(resultVariableName) = (\(resultType))")
                     }
 
                     switch kind {
