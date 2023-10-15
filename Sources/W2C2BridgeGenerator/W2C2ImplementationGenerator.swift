@@ -728,10 +728,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                             Raw("\(constantName) = \(callArguments.first!)")
                     }
 
-                    if let returnSuffix {
-                        Raw(returnSuffix)
-                    }
-
                     Raw(";\n")
                 }
 
@@ -740,7 +736,15 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 }
 
                 if let returnPrefix {
-                    Raw("\(returnPrefix)\(resultVariableName);\n")
+                    Concat {
+                        Raw("\(returnPrefix)\(resultVariableName)")
+
+                        if let returnSuffix {
+                            Raw(returnSuffix)
+                        }
+
+                        Raw(";\n")
+                    }
                 }
             }
 
