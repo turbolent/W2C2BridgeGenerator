@@ -706,6 +706,11 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                             Raw("[")
                             if isClassMethod {
                                 Raw("(Class)\(classParameterName)")
+                            } else if className == "NSObject" {
+                                // Some methods are declared on NSObject, but are actually from an (informal) protocol.
+                                // Casting to a concrete type like NSObject and returning a non-scalar is invalid.
+                                // Cast to id instead.
+                                Raw("(id)\(selfParameterName)")
                             } else {
                                 Raw("(\(className)*)\(selfParameterName)")
                             }
