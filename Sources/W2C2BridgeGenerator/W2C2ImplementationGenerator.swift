@@ -522,6 +522,10 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             return "*(\(type)*)(\(newMemoryOffset(offset)))"
         }
 
+        func isCoreFoundationType(declaredType: String?) -> Bool {
+            return declaredType.map(coreFoundationTypeNames.contains) ?? false
+        }
+
         // Prepare call arguments
 
         var callArguments: [String] = []
@@ -554,12 +558,16 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
                     let temp = newTemporary()
                     let isPointer = argument.type32?.isPointer ?? false
-                    let isCoreFoundationType = argument.declaredType.map(coreFoundationTypeNames.contains) ?? false
                     var conversionStatement = "\(argumentType) \(temp) = (\(argumentType))"
-                    if isPointer && !isCoreFoundationType {
-                        conversionStatement.append("(\(parameterName) ? \(newMemoryOffset(parameterName)) : NULL)")
-                    } else {
+                    // Non-pointers, Core Foundation types (pointers), and void-pointers
+                    // are passed directly as-is
+                    if !isPointer
+                        || isCoreFoundationType(declaredType: argument.declaredType)
+                        || argument.type32.map(isVoidPointerType) ?? false
+                    {
                         conversionStatement.append(parameterName)
+                    } else {
+                        conversionStatement.append("(\(parameterName) ? \(newMemoryOffset(parameterName)) : NULL)")
                     }
                     conversionStatement.append(";\n")
                     argumentConversionStatements.append(conversionStatement)

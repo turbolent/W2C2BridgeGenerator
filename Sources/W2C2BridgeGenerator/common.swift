@@ -158,6 +158,7 @@ func checkBridgeable(
     if let returnValue = functionType.returnValue {
 
         let allowPointer = isCoreFoundationType(declaredType: returnValue.declaredType)
+            || returnValue.type32.map(isVoidPointerType) ?? false
 
         guard isBridgeable(
             returnValue: returnValue,
@@ -173,14 +174,20 @@ func checkBridgeable(
 
     // When generating code for little-endian systems, a pointer to any size is acceptable,
     // because the memory of the WebAssembly module is layed out in little-endian already.
-    // TODO: allow pointer to 1-sized type for big-endian, e.g. char pointer (incl. const)
+    //
+    // For big-endian systems, we only allow certain types:
+    // Core Foundation types (pointers), void-pointers, and char-pointers
+
     let allowPointerArguments = !generateBigEndian
 
     for argument in functionType.arguments {
 
         let allowPointer = allowPointerArguments
             || isCoreFoundationType(declaredType: argument.declaredType)
-            || argument.type32.map(isCharPointer) ?? false
+            || argument.type32.map {
+                    isPointerType($0, inner: isChar)
+                        || isVoidPointerType($0)
+               } ?? false
 
         guard isBridgeable(
             argument: argument,
@@ -351,20 +358,28 @@ extension BridgeSupportParser.`Type` {
     }
 }
 
-func isCharPointer(_ type: BridgeSupportParser.`Type`) -> Bool {
-    func isChar(_ type: BridgeSupportParser.`Type`) -> Bool {
-        return type == .Char
-            || type == .UnsignedChar
+func isChar(_ type: BridgeSupportParser.`Type`) -> Bool {
+    switch type {
+        case .UnsignedChar, .Char:
+            return true
+        default:
+            return false
     }
+}
 
+func isVoidPointerType(_ type: BridgeSupportParser.`Type`) -> Bool {
+    return isPointerType(type) { $0 == .Void }
+}
+
+func isPointerType(_ type: BridgeSupportParser.`Type`, inner: (BridgeSupportParser.`Type`) -> Bool) -> Bool {
     switch type {
         case let .Pointer(type),
             let .Const(.Pointer(type)):
 
             if case let .Const(type) = type {
-                return isChar(type)
+                return inner(type)
             }
-            return isChar(type)
+            return inner(type)
 
         default:
             return false
