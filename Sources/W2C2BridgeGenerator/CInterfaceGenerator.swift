@@ -450,13 +450,26 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             report("cannot generate CoreFoundation type '\(name)': missing type")
             return
         }
-        guard case let .Pointer(.Struct(structType)) = type else {
-            report("cannot generate CoreFoundation type '\(name)': unsupported type: \(type)")
+        guard case let .Pointer(innerType) = type else {
+            report("cannot generate CoreFoundation type '\(name)': unsupported non-pointer type: \(type)")
             return
         }
-        guard structType.fields.isEmpty else {
-            report("cannot generate CoreFoundation type '\(name)': unsupported non-opaque struct type: \(structType)")
-            return
+
+        let typeSpecifier: TypeDeclaration.TypeSpecifier
+        switch innerType {
+            case let .Struct(structType):
+                guard structType.fields.isEmpty else {
+                    report("cannot generate CoreFoundation type '\(name)': unsupported non-opaque struct type: \(structType)")
+                    return
+                }
+                typeSpecifier = .Struct(structType.name)
+
+            case .Void:
+                typeSpecifier = .Name("void")
+
+            default:
+                report("cannot generate CoreFoundation type '\(name)': unsupported type: \(type)")
+                return
         }
 
         let generateComments = generateComments
@@ -468,7 +481,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             Typedef(
                 identifier: name,
                 type: .Declaration(TypeDeclaration(
-                    typeSpecifier: .Struct(structType.name),
+                    typeSpecifier: typeSpecifier,
                     declarators: [.Pointer(isConst: false)]
                 ))
             )
