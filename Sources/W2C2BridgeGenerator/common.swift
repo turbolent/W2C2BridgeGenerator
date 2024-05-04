@@ -1,215 +1,178 @@
 import BridgeSupportParser
 import CWriter
 
-public func isBridgeable(
+public enum UnbridgeableError: Swift.Error {
+    case UnsupportedType(BridgeSupportParser.`Type`)
+    case UnsupportedDeclaredType(String)
+    case MissingType32InField(BridgeSupportParser.Field)
+    case MissingType32InReturnValue(BridgeSupportParser.ReturnValue)
+    case MissingType32InArgument(BridgeSupportParser.Argument)
+}
+
+public func checkBridgeable(
     type: BridgeSupportParser.`Type`,
-    allowPointer: Bool,
     generateBigEndian: Bool
-) -> Bool {
+) throws {
     switch type {
         case .Pointer(let type):
-            guard allowPointer else {
-                return false
-            }
-
-            return isBridgeable(
+            try checkBridgeable(
                 type: type,
-                allowPointer: false,
                 generateBigEndian: generateBigEndian
             )
 
         case .FunctionType, .Unknown:
-            return false
+            throw UnbridgeableError.UnsupportedType(type)
 
         case .ComplexFloat, .ComplexDouble:
             // TODO:
-            return false
+            throw UnbridgeableError.UnsupportedType(type)
 
         case .Char, .Int, .Short, .Long, .LongLong,
             .UnsignedChar, .UnsignedInt, .UnsignedShort, .UnsignedLong, .UnsignedLongLong,
             .Float, .Double,
             .Bool, .Void,
-            // pointers, but allocated on host side
             .ID, .Class, .Selector:
 
-            return true
+            break
 
         case .Bitfield:
             // TODO: add support in convertBigEndian
-            return !generateBigEndian
+            guard !generateBigEndian else {
+                throw UnbridgeableError.UnsupportedType(type)
+            }
 
         case .Array(let arrayType):
             // TODO: add support in convertBigEndian
-            if generateBigEndian {
-                return false
+            guard !generateBigEndian else {
+                throw UnbridgeableError.UnsupportedType(type)
             }
 
-            return isBridgeable(
+            try checkBridgeable(
                 type: arrayType.type,
-                allowPointer: false,
                 generateBigEndian: generateBigEndian
             )
 
         case .Struct(let structType):
-            return isBridgeable(
+            try checkBridgeable(
                 structType: structType,
                 generateBigEndian: generateBigEndian
             )
 
         case .Union(let unionType):
-            return isBridgeable(
+            try checkBridgeable(
                 unionType: unionType,
                 generateBigEndian: generateBigEndian
             )
 
         case .Const(let type):
-            return isBridgeable(
+            try checkBridgeable(
                 type: type,
-                allowPointer: allowPointer,
                 generateBigEndian: generateBigEndian
             )
     }
 }
 
-public func isBridgeable(
-    structType: StructType,
+public func checkBridgeable(
+    field: BridgeSupportParser.Field,
     generateBigEndian: Bool
-) -> Bool {
-    return structType.fields.allSatisfy { field in
-        guard let type = field.type32 else {
-            return false
-        }
-        return isBridgeable(
-            type: type,
-            allowPointer: false,
-            generateBigEndian: generateBigEndian
-        )
-    }
-}
+) throws {
 
-public func isBridgeable(
-    unionType: UnionType,
-    generateBigEndian: Bool
-) -> Bool {
-    // TODO: add support in convertBigEndian
-    if generateBigEndian {
-        return false
+    guard let type32 = field.type32 else {
+        throw UnbridgeableError.MissingType32InField(field)
     }
 
-    return unionType.fields.allSatisfy { field in
-        guard let type = field.type32 else {
-            return false
-        }
-        return isBridgeable(
-            type: type,
-            allowPointer: false,
-            generateBigEndian: generateBigEndian
-        )
-    }
-}
-
-public func isBridgeable(
-    returnValue: ReturnValue,
-    allowPointer: Bool,
-    generateBigEndian: Bool
-) -> Bool {
-    guard let type32 = returnValue.type32 else {
-        return false
-    }
-    return isBridgeable(
+    try checkBridgeable(
         type: type32,
-        allowPointer: allowPointer,
         generateBigEndian: generateBigEndian
     )
 }
 
-public func isBridgeable(
-    argument: Argument,
-    allowPointer: Bool,
+public func checkBridgeable(
+    structType: StructType,
     generateBigEndian: Bool
-) -> Bool {
-    guard let type32 = argument.type32 else {
-        return false
+) throws {
+    for field in structType.fields {
+        try checkBridgeable(
+            field: field,
+            generateBigEndian: generateBigEndian
+        )
     }
-    return isBridgeable(
+}
+
+public func checkBridgeable(
+    unionType: UnionType,
+    generateBigEndian: Bool
+) throws {
+    // TODO: add support in convertBigEndian
+    guard !generateBigEndian else {
+        throw UnbridgeableError.UnsupportedType(.Union(unionType))
+    }
+
+    for field in unionType.fields {
+        try checkBridgeable(
+            field: field,
+            generateBigEndian: generateBigEndian
+        )
+    }
+}
+
+public func checkBridgeable(
+    returnValue: ReturnValue,
+    generateBigEndian: Bool
+) throws {
+    guard let type32 = returnValue.type32 else {
+        throw UnbridgeableError.MissingType32InReturnValue(returnValue)
+    }
+    try checkBridgeable(
         type: type32,
-        allowPointer: allowPointer,
+        generateBigEndian: generateBigEndian
+    )
+}
+
+public func checkBridgeable(
+    argument: Argument,
+    generateBigEndian: Bool
+) throws {
+    guard let type32 = argument.type32 else {
+        throw UnbridgeableError.MissingType32InArgument(argument)
+    }
+    try checkBridgeable(
+        type: type32,
         generateBigEndian: generateBigEndian
     )
 }
 
 func checkBridgeable(
     functionType: FunctionType,
-    kind: FunctionKind,
-    coreFoundationTypeNames: Set<String>,
-    generateBigEndian: Bool,
-    report: (String) -> Void
-) -> Bool {
-
-    func isCoreFoundationType(declaredType: String?) -> Bool {
-        guard let declaredType else {
-            return false
-        }
-        return coreFoundationTypeNames.contains(declaredType)
-    }
+    generateBigEndian: Bool
+) throws {
 
     // Ensure return value is bridgeable
 
     if let returnValue = functionType.returnValue {
-
-        let allowPointer = isCoreFoundationType(declaredType: returnValue.declaredType)
-            || returnValue.type32.map(isVoidPointerType) ?? false
-
-        guard isBridgeable(
+        try checkBridgeable(
             returnValue: returnValue,
-            allowPointer: allowPointer,
             generateBigEndian: generateBigEndian
-        ) else {
-            report("cannot generate \(kind): unbridgeable return value: \(returnValue)")
-            return false
-        }
+        )
     }
 
     // Ensure all arguments are bridgeable
 
-    // When generating code for little-endian systems, a pointer to any size is acceptable,
-    // because the memory of the WebAssembly module is layed out in little-endian already.
-    //
-    // For big-endian systems, we only allow certain types:
-    // Core Foundation types (pointers), void-pointers, and char-pointers
-
-    let allowPointerArguments = !generateBigEndian
-
     for argument in functionType.arguments {
 
-        let allowPointer = allowPointerArguments
-            || isCoreFoundationType(declaredType: argument.declaredType)
-            || argument.type32.map {
-                    isPointerType($0, inner: isChar)
-                        || isVoidPointerType($0)
-               } ?? false
-
-        guard isBridgeable(
+        try checkBridgeable(
             argument: argument,
-            allowPointer: allowPointer,
             generateBigEndian: generateBigEndian
-        ) else {
-            report("cannot generate \(kind): unbridgeable argument: \(argument)")
-            return false
-        }
+        )
 
-        // Functions/methods might not be declared variadic,
-        // but still are variadic
+        // TODO: https://github.com/apple/swift/issues/72398
         if argument.declaredType == "va_list" {
-            report("cannot generate \(kind): variadic")
-            return false
+            throw UnbridgeableError.UnsupportedDeclaredType("va_list")
         }
     }
-
-    return true
 }
 
-enum FunctionKind: CustomStringConvertible {
+enum FunctionKind: CustomStringConvertible, Hashable {
     case Function(name: String)
     case Method(
         className: String,
@@ -279,109 +242,127 @@ public func constantSetterFunctionType(_ constant: Constant) -> FunctionType {
     )
 }
 
+extension TypeDeclaration.TypeSpecifier {
+    fileprivate static let empty = Self.Name("")
+}
+
+extension TypeDeclaration {
+
+    fileprivate mutating func build(name: String, isConst: Bool) throws {
+        guard typeSpecifier == .empty else {
+            throw TypeDeclarationError.InvalidState
+        }
+        typeSpecifier = .Name(name)
+
+        if isConst {
+            guard typeQualifers.isEmpty else {
+                throw TypeDeclarationError.InvalidState
+            }
+            typeQualifers.append(.Const)
+        }
+    }
+
+    fileprivate mutating func build(struct: String) throws {
+        guard typeSpecifier == .empty else {
+            throw TypeDeclarationError.InvalidState
+        }
+        typeSpecifier = .Struct(`struct`)
+    }
+}
+
+enum TypeDeclarationError: Swift.Error {
+    case InvalidState
+    case UnsupportedType(BridgeSupportParser.`Type`)
+    case MissingStructName(StructType)
+}
+
 extension BridgeSupportParser.`Type` {
 
-    var typeDeclaration: CWriter.TypeDeclaration? {
+    func typeDeclaration(isConst: Bool) -> TypeDeclaration? {
+        do {
+            var result = TypeDeclaration(typeSpecifier: .empty)
+            try buildTypeDeclaration(result: &result, isConst: isConst)
+            return result
+        } catch {
+            // TODO: return error
+            return nil
+        }
+    }
+
+    // TODO: handle/add const
+    private func buildTypeDeclaration(result: inout TypeDeclaration, isConst: Bool) throws {
         switch self {
             // Signed
             case .Char:
-                return .Char
+                try result.build(name: "char", isConst: isConst)
             case .Int:
-                return .Int
+                try result.build(name: "int", isConst: isConst)
             case .Short:
-                return .Short
+                try result.build(name: "short", isConst: isConst)
             case .Long:
-                return .Long
+                try result.build(name: "long", isConst: isConst)
             case .LongLong:
-                return .LongLong
+                try result.build(name: "long long", isConst: isConst)
 
             // Unsigned
             case .UnsignedChar:
-                return .UnsignedChar
+                try result.build(name: "unsigned char", isConst: isConst)
             case .UnsignedInt:
-                return .UnsignedInt
+                try result.build(name: "unsigned int", isConst: isConst)
             case .UnsignedShort:
-                return .UnsignedShort
+                try result.build(name: "unsigned short", isConst: isConst)
             case .UnsignedLong:
-                return .UnsignedLong
+                try result.build(name: "unsigned long", isConst: isConst)
             case .UnsignedLongLong:
-                return .UnsignedLongLong
+                try result.build(name: "unsigned long long", isConst: isConst)
 
             // Floating point
             case .Float:
-                return .Float
+                try result.build(name: "float", isConst: isConst)
             case .Double:
-                return .Double
+                try result.build(name: "double", isConst: isConst)
 
             // Other
             case .Bool:
-                return ._Bool
+                try result.build(name: "_Bool", isConst: isConst)
             case .Void:
-                return .Void
+                try result.build(name: "void", isConst: isConst)
             case .ID:
-                return .ID
+                try result.build(name: "id", isConst: isConst)
 
             case var .Pointer(type):
                 if type == .Unknown {
                     type = .Void
                 }
-                guard var typeDeclaration = type.typeDeclaration else {
-                    return nil
-                }
-                typeDeclaration.declarators.append(.Pointer(isConst: false))
-                return typeDeclaration
+                result.declarators.append(.Pointer(isConst: false))
+                try type.buildTypeDeclaration(
+                    result: &result,
+                    isConst: isConst
+                )
 
             case let .Array(arrayType):
-                guard var typeDeclaration = arrayType.type.typeDeclaration else {
-                    return nil
-                }
-                typeDeclaration.declarators.append(.Array(size: arrayType.size))
-                return typeDeclaration
+                result.declarators.append(.Array(size: arrayType.size))
+                try arrayType.type.buildTypeDeclaration(
+                    result: &result,
+                    isConst: isConst
+                )
 
             case let .Struct(`struct`):
                 let name = `struct`.name
                 guard !name.isEmpty else {
-                    return nil
+                    throw TypeDeclarationError.MissingStructName(`struct`)
                 }
-                return TypeDeclaration(struct: name)
+                result.typeSpecifier = .Struct(name)
 
             case .Class:
-                return TypeDeclaration(name: "Class")
+                try result.build(name: "Class", isConst: isConst)
 
             case .Selector:
-                return TypeDeclaration(name: "SEL")
+                try result.build(name: "SEL", isConst: isConst)
 
             default:
-                // TODO:
-                return nil
+                // TODO: Const
+                throw TypeDeclarationError.UnsupportedType(self)
         }
-    }
-}
-
-func isChar(_ type: BridgeSupportParser.`Type`) -> Bool {
-    switch type {
-        case .UnsignedChar, .Char:
-            return true
-        default:
-            return false
-    }
-}
-
-func isVoidPointerType(_ type: BridgeSupportParser.`Type`) -> Bool {
-    return isPointerType(type) { $0 == .Void }
-}
-
-func isPointerType(_ type: BridgeSupportParser.`Type`, inner: (BridgeSupportParser.`Type`) -> Bool) -> Bool {
-    switch type {
-        case let .Pointer(type),
-            let .Const(.Pointer(type)):
-
-            if case let .Const(type) = type {
-                return inner(type)
-            }
-            return inner(type)
-
-        default:
-            return false
     }
 }

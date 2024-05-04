@@ -8,14 +8,16 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-system", from: "1.2.0"),
         .package(url: "https://github.com/turbolent/BridgeSupportParser.git", branch: "main"),
-        .package(url: "https://github.com/turbolent/CWriter.git", branch: "main")
+        .package(url: "https://github.com/turbolent/CWriter.git", branch: "main"),
+        .package(url: "https://github.com/krzysztofzablocki/Difference.git", branch: "master")
     ],
     targets: [
         .target(
            name: "W2C2BridgeGenerator",
            dependencies: [
                 "BridgeSupportParser",
-                "CWriter"
+                "CWriter",
+                "Difference"
            ]
         ),
         .executableTarget(

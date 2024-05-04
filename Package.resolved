@@ -6,7 +6,7 @@
         "repositoryURL": "https://github.com/turbolent/BridgeSupportParser.git",
         "state": {
           "branch": "main",
-          "revision": "08174206b529fe1f3a7c38725b515bb956e94284",
+          "revision": "9b1bc7960070922586b23ce1a7b8e76ab9324a77",
           "version": null
         }
       },
@@ -15,7 +15,16 @@
         "repositoryURL": "https://github.com/turbolent/CWriter.git",
         "state": {
           "branch": "main",
-          "revision": "5a271a32b12373597b8321d96e529e3be046ac48",
+          "revision": "d0c78a341370eee7502204279418855c63068817",
+          "version": null
+        }
+      },
+      {
+        "package": "Difference",
+        "repositoryURL": "https://github.com/krzysztofzablocki/Difference.git",
+        "state": {
+          "branch": "master",
+          "revision": "dfc9d12f9d222d70fcd34ca0e3151afbca76476c",
           "version": null
         }
       },
@@ -24,8 +33,8 @@
         "repositoryURL": "https://github.com/apple/swift-argument-parser.git",
         "state": {
           "branch": null,
-          "revision": "8f4d2753f0e4778c76d5f05ad16c74f707390531",
-          "version": "1.2.3"
+          "revision": "46989693916f56d1186bd59ac15124caef896560",
+          "version": "1.3.1"
         }
       },
       {

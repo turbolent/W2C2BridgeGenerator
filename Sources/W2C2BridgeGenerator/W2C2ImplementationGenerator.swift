@@ -11,7 +11,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     public let generateComments: Bool
     public let generateBigEndian: Bool
 
-    private var coreFoundationTypeNames: Set<String> = []
     private var structTypes: [String: StructType] = [:]
 
     private var reportedUnsupportedDefinitionKinds: Set<String> = []
@@ -152,12 +151,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         }
 
         for definition in definitions {
-            if case let .CoreFoundationType(coreFoundationType) = definition {
-                coreFoundationTypeNames.insert(coreFoundationType.name)
-            }
-        }
-
-        for definition in definitions {
             generate(definition: definition)
         }
     }
@@ -194,26 +187,28 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     }
 
     public mutating func generate(struct: BridgeSupportParser.Struct) {
-        let name = `struct`.name
-        guard let type = `struct`.type32 else {
-            report("cannot generate struct '\(name)': missing 32-bit type")
+        guard let type32 = `struct`.type32 else {
+            report("cannot generate struct definition '\(`struct`.name)': missing 32-bit type")
             return
         }
 
-        guard isBridgeable(
-            structType: type,
-            generateBigEndian: generateBigEndian
-        ) else {
-            report("cannot generate struct '\(name)': unbridgeable type")
+        let name = type32.name
+
+        guard !name.isEmpty else {
             return
         }
 
-        let typeName = type.name
-        guard !typeName.isEmpty else {
-            report("cannot generate struct '\(name)': anonymous")
+        do {
+            try checkBridgeable(
+                structType: type32,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate struct '\(name)': \(error)")
             return
         }
-        structTypes[typeName] = type
+
+        structTypes[name] = type32
 
         // TODO: implementation currently uses host types,
         //   assumes host matches client, i.e. 32-bit little-endian.
@@ -416,13 +411,13 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             return
         }
 
-        guard checkBridgeable(
-            functionType: originalFunctionType,
-            kind: kind,
-            coreFoundationTypeNames: coreFoundationTypeNames,
-            generateBigEndian: generateBigEndian,
-            report: report
-        ) else {
+        do {
+            try checkBridgeable(
+                functionType: originalFunctionType,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate \(kind): \(error)")
             return
         }
 
@@ -522,10 +517,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             return "*(\(type)*)(\(newMemoryOffset(offset)))"
         }
 
-        func isCoreFoundationType(declaredType: String?) -> Bool {
-            return declaredType.map(coreFoundationTypeNames.contains) ?? false
-        }
-
         // Prepare call arguments
 
         var callArguments: [String] = []
@@ -545,7 +536,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             //  Use generated "client types"
             guard let type = CInterfaceGenerator<Output>.convert(
                 type32: argument.type32,
-                declaredType: argument.declaredType
+                isConst: argument.isConst
             ) else {
                 report("cannot generate \(kind): unsupported argument type: \(argument)")
                 return
@@ -557,20 +548,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     // Direct passage of pointer
 
                     let temp = newTemporary()
-                    let isPointer = argument.type32?.isPointer ?? false
-                    var conversionStatement = "\(argumentType) \(temp) = (\(argumentType))"
-                    // Non-pointers, Core Foundation types (pointers), and void-pointers
-                    // are passed directly as-is
-                    if !isPointer
-                        || isCoreFoundationType(declaredType: argument.declaredType)
-                        || argument.type32.map(isVoidPointerType) ?? false
-                    {
-                        conversionStatement.append(parameterName)
-                    } else {
-                        conversionStatement.append("(\(parameterName) ? \(newMemoryOffset(parameterName)) : NULL)")
-                    }
-                    conversionStatement.append(";\n")
-                    argumentConversionStatements.append(conversionStatement)
+                    argumentConversionStatements.append("\(argumentType) \(temp) = (\(argumentType))\(parameterName);\n")
                     callArguments.append(temp)
 
                 } else {
@@ -614,7 +592,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             //  Use generated "client types"
             guard let type = CInterfaceGenerator<Output>.convert(
                 type32: returnValue.type32,
-                declaredType: returnValue.declaredType
+                isConst: returnValue.isConst
             ) else {
                 report("cannot generate \(kind): unsupported return value: \(returnValue)")
                 return

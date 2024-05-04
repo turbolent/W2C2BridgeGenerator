@@ -1,34 +1,16 @@
 import BridgeSupportParser
 import CWriter
 import SystemPackage
-
-private let genericArgumentRegex = try! Regex(#" *<[^>]*>"#)
+import Difference
 
 private let instanceTypeSelectorRegex = try! Regex(#"^(?:alloc|init|new)($|[A-Z0-9_])"#)
 
-private let typedefDeclaredTypesRegex = try! Regex(#"^([A-Za-z_]\w*)(\*)?$"#)
-
-private let typedefDisallowedDeclaredTypes: [String] = [
-    "char", "signed char", "unsigned char",
-    "short", "short int", "signed short", "signed short int",
-    "unsigned short", "unsigned short int",
-    "int", "signed", "signed int", "unsigned", "unsigned int",
-    "long", "long int", "signed long", "signed long int",
-    "unsigned long", "unsigned long int",
-    "long long", "long long int", "signed long long", "signed long long int",
-    "unsigned long long", "unsigned long long int",
-    "float", "double", "long double",
-    "void", "id", "Class", "SEL",
-    // Declared as id
-    "Protocol*"
-]
-
-private let typedefAllowedTypes: [BridgeSupportParser.`Type`] = [
-    .Char, .Int, .Short, .Long, .LongLong,
-    .UnsignedChar, .UnsignedInt, .UnsignedShort, .UnsignedLong, .UnsignedLongLong,
-    .Float, .Double, .ComplexFloat, .ComplexDouble,
-    .Bool, .Void, .ID
-]
+private enum TypeDefinition {
+    case Class(BridgeSupportParser.Class)
+    case CoreFoundationType(BridgeSupportParser.CoreFoundationType)
+    case Opaque(BridgeSupportParser.Opaque)
+    case Struct(BridgeSupportParser.Struct)
+}
 
 public struct CInterfaceGenerator<Output: TextOutputStream> {
 
@@ -37,9 +19,8 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
     public let generateBigEndian: Bool
 
     private var reportedUnsupportedDefinitionKinds: Set<String> = []
-    private var coreFoundationTypeNames: Set<String> = []
-    private var declaredTypeTypeDefs: Set<String> = []
     private var declaredClasses: Set<String> = []
+    private var declaredFunctions: Set<FunctionKind> = []
 
     public init(
         output: Output,
@@ -56,32 +37,53 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         "C interface generator: \(message)\n".write(to: &standardError)
     }
 
-    public static func convert(type32: BridgeSupportParser.`Type`?, declaredType: String?) -> CWriter.`Type`? {
-        if var declaredType {
-            // Filter generic arguments, e.g. `id <NSCopying>` => `id`
-            declaredType.replace(genericArgumentRegex, with: "")
+    public static func convert(
+        type32: BridgeSupportParser.`Type`?,
+        isConst: Bool
+    ) -> CWriter.`Type`? {
+        guard let typeDeclaration = type32.flatMap({
+            $0.typeDeclaration(isConst: isConst)
+        }) else {
+            return nil
+        }
+        return .Declaration(typeDeclaration)
+    }
 
+    private func isPointerToClass(declaredType: String) -> Bool {
+        return declaredType.last == "*"
+            && declaredClasses.contains(String(declaredType.dropLast()))
+    }
+
+    private func convert(returnValue: ReturnValue) -> CWriter.`Type`? {
+        // Prefer declared type if pointer to class
+        if let declaredType = returnValue.declaredType,
+            isPointerToClass(declaredType: declaredType)
+        {
             return .Raw(declaredType)
         }
 
-        if let typeDeclaration = type32.flatMap({ $0.typeDeclaration }) {
-            return .Declaration(typeDeclaration)
-        }
-
-        return nil
-    }
-
-    public static func convert(returnValue: ReturnValue) -> CWriter.`Type`? {
-        return convert(
+        return Self.convert(
             type32: returnValue.type32,
-            declaredType: returnValue.declaredType
+            isConst: returnValue.isConst
         )
     }
 
-    public static func convert(argument: Argument, name: String) -> Parameter? {
-        guard let parameterType = convert(
+    private func convert(argument: Argument, name: String) -> Parameter? {
+
+        // Prefer declared type if pointer to class, or va_list
+        if let declaredType = argument.declaredType,
+            isPointerToClass(declaredType: declaredType)
+                || declaredType == "va_list"
+        {
+            return Parameter(
+                identifier: name,
+                type: .Raw(declaredType)
+            )
+        }
+
+        guard let parameterType = Self.convert(
             type32: argument.type32,
-            declaredType: argument.declaredType
+            isConst: argument.isConst
         ) else {
             return nil
         }
@@ -92,11 +94,11 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         )
     }
 
-    public static func convert(field: BridgeSupportParser.Field) -> CWriter.Field? {
-        guard let type = field.type32 else {
+    private static func convert(field: BridgeSupportParser.Field) -> CWriter.Field? {
+        guard let type32 = field.type32 else {
             return nil
         }
-        guard let typeDeclaration = type.typeDeclaration else {
+        guard let typeDeclaration = type32.typeDeclaration(isConst: false) else {
             return nil
         }
         return CWriter.Field(
@@ -105,7 +107,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         )
     }
 
-    public static func convert(functionType: FunctionType) -> (returnType: CWriter.`Type`, parameters: [Parameter])? {
+    private func convert(functionType: FunctionType) -> (returnType: CWriter.`Type`, parameters: [Parameter])? {
         // Convert return type
 
         let returnType: CWriter.`Type`
@@ -121,18 +123,11 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         // Convert arguments
 
         var parameters: [Parameter] = []
-        var parameterIdentifiers: [String: Int] = [:]
         for argument in functionType.arguments {
-
-            var name = argument.name
-            if var count = parameterIdentifiers[name] {
-                count += 1
-                parameterIdentifiers[name] = count
-                name += "_\(count)"
-            }
-            parameterIdentifiers[name] = 1
-
-            guard let parameter = convert(argument: argument, name: name) else {
+            guard let parameter = convert(
+                argument: argument,
+                name: argument.name
+            ) else {
                 return nil
             }
             parameters.append(parameter)
@@ -147,26 +142,41 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
     /// Return all type definitions (classes, CoreFoundation types, opaque types, and structs),
     /// in proper order: Structs may have dependencies on non-struct types and other structs,
     /// given they have fields. Essentially a topological sort, using depth-first search.
-    public func orderedTypeDefinitions(_ definitions: [Definition]) -> [Definition] {
+    private func orderedTypeDefinitions(_ definitions: [Definition]) -> [TypeDefinition] {
 
-        var stack: [Definition] = []
+        var stack: [TypeDefinition] = []
 
         var structs: [String: BridgeSupportParser.Struct] = [:]
         var visitedStructs: [String: Bool] = [:]
 
         for definition in definitions {
             switch definition {
-                case .Class, .Opaque, .CoreFoundationType:
-                    stack.append(definition)
+                case let .Class(`class`):
+                    stack.append(.Class(`class`))
+
+                case let .Opaque(opaque):
+                    stack.append(.Opaque(opaque))
+
+                case let .CoreFoundationType(coreFoundationType):
+                    stack.append(.CoreFoundationType(coreFoundationType))
 
                 case let .Struct(`struct`):
                     guard let type32 = `struct`.type32 else {
-                        report("cannot generate struct '\(`struct`.name)': missing 32-bit type")
+                        report("cannot generate struct definition '\(`struct`.name)': missing type")
                         continue
                     }
 
-                    visitedStructs[type32.name] = false
-                    structs[type32.name] = `struct`
+                    let name = type32.name
+
+                    visitedStructs[name] = false
+
+                    if let existing = structs[name] {
+                        if type32 != existing.type32 {
+                            report("different types for struct '\(name)': \(diff(existing.type32, type32))")
+                        }
+                        continue
+                    }
+                    structs[name] = `struct`
 
                 default:
                     continue
@@ -181,7 +191,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             type32.bestEffortStructDependencies32(result: &dependencies)
 
             for dependency in dependencies {
-                if let seen = visitedStructs[dependency], !seen {
+                if dependency != structName, let seen = visitedStructs[dependency], !seen {
                     visit(structName: dependency)
                 }
             }
@@ -199,126 +209,18 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         return stack
     }
 
-    public mutating func generateTypeDefinition(declaredType: String, type32: BridgeSupportParser.`Type`) {
-        guard typedefAllowedTypes.contains(type32),
-            !typedefDisallowedDeclaredTypes.contains(declaredType),
-            !declaredTypeTypeDefs.contains(declaredType),
-
-            let match = declaredType.wholeMatch(of: typedefDeclaredTypesRegex),
-            let namePrefix = match.output[1].substring
-        else {
-            return
-        }
-
-        declaredTypeTypeDefs.insert(declaredType)
-
-        let name = String(namePrefix)
-
-        let pointerSuffix = match.output[2].substring
-        if pointerSuffix != nil {
-            // Pointers are only allowed for id declarations, for now
-
-            guard type32 == .ID else {
-                return
-            }
-
-            declaredClasses.insert(name)
-
-            let generateComments = generateComments
-            output.write {
-                if generateComments {
-                    LineComment("class '\(name)'")
-                }
-                CWriter.Typedef(
-                    identifier: name,
-                    type: .init(struct: name)
-                )
-
-                Newline
-            }
-
-        } else {
-            // Non-pointer
-
-            guard let typeDeclaration = type32.typeDeclaration else {
-                return
-            }
-
-            output.write {
-                CWriter.Typedef(
-                    identifier: name,
-                    type: .Declaration(typeDeclaration)
-                )
-
-                Newline
-            }
-        }
-    }
-
-    public mutating func generateTypeDefinition(functionType: FunctionType) {
-        for argument in functionType.arguments {
-            if let declaredType = argument.declaredType,
-                let type32 = argument.type32
-            {
-                generateTypeDefinition(
-                    declaredType: declaredType,
-                    type32: type32
-                )
-            }
-        }
-
-        if let returnValue = functionType.returnValue,
-            let declaredType = returnValue.declaredType,
-            let type32 = returnValue.type32
-        {
-            generateTypeDefinition(
-                declaredType: declaredType,
-                type32: type32
-            )
-        }
-    }
-
-    /// Generate typedefs for all declared types in structs (fields), functions, and methods.
-    /// This is a best effort approach
-    public mutating func generate(declaredTypeDefinitions definitions: [Definition]) {
-
-        for definition in definitions {
-            switch definition {
-            case let .Class(`class`):
-                for method in `class`.methods {
-                    generateTypeDefinition(functionType: method.functionType)
-                }
-
-            case let .Function(function):
-                generateTypeDefinition(functionType: function.functionType)
-
-            // TODO: maybe also consider struct fields
-
-            default:
-                break
-
-            }
-        }
-    }
-
     public mutating func generate(definitions: [Definition]) {
 
-        // Register all CoreFoundation type names.
-        // Pointers to these types are bridgeable, as they are host-allocated
+        output.write {
+            LineComment("Generated by W2C2BridgeGenerator")
 
-        for definition in definitions {
-            if case let .CoreFoundationType(coreFoundationType) = definition {
-                coreFoundationTypeNames.insert(coreFoundationType.name)
-            }
+            Include(file: "stdarg.h", style: .AngularBrackets)
         }
-
-        // Generate typedefs for all declared types in structs (fields), functions, and methods
-        generate(declaredTypeDefinitions: definitions)
 
         // Generate type definitions
 
         for definition in orderedTypeDefinitions(definitions) {
-            generate(definition: definition)
+            generate(typeDefinition: definition)
         }
 
         // Generate remaining definitions (methods, functions, enums, etc.)
@@ -336,17 +238,27 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                     generate(method: method, className: className)
                 }
 
+            case let .Enum(`enum`):
+                generate(enum: `enum`)
+
+            case let .Function(function):
+                generate(function: function)
+
+            case let .Constant(constant):
+                generate(constant: constant)
+
             default:
-                generate(definition: definition)
+                let kind = definition.label
+                if !reportedUnsupportedDefinitionKinds.contains(kind) {
+                    reportedUnsupportedDefinitionKinds.insert(kind)
+                    report("unsupported definition: \(kind)")
+                }
             }
         }
     }
 
-    public mutating func generate(definition: Definition) {
-        switch definition {
-            case let .Function(function):
-                generate(function: function)
-
+    private mutating func generate(typeDefinition: TypeDefinition) {
+        switch typeDefinition {
             case let .Struct(`struct`):
                 generate(struct: `struct`)
 
@@ -356,46 +268,33 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             case let .CoreFoundationType(coreFoundationType):
                 generate(coreFoundationType: coreFoundationType)
 
-            case let .Constant(constant):
-                generate(constant: constant)
-
-            case let .Enum(`enum`):
-                generate(enum: `enum`)
-
             case let .Opaque(opaque):
                 generate(opaque: opaque)
-
-            default:
-                let kind = definition.label
-                if !reportedUnsupportedDefinitionKinds.contains(kind) {
-                    reportedUnsupportedDefinitionKinds.insert(kind)
-                    report("unsupported definition: \(kind)")
-                }
         }
     }
 
-    public mutating func generate(struct: BridgeSupportParser.Struct) {
-        let typedefName = `struct`.name
-
-        guard let type = `struct`.type32 else {
-            report("cannot generate struct '\(typedefName)': missing 32-bit type")
+    private mutating func generate(struct: BridgeSupportParser.Struct) {
+        guard let type32 = `struct`.type32 else {
+            report("cannot generate struct definition '\(`struct`.name)': missing type")
             return
         }
 
-        guard isBridgeable(
-            structType: type,
-            generateBigEndian: generateBigEndian
-        ) else {
-            report("cannot generate struct '\(typedefName)': unbridgeable type")
+        let name = type32.name
+
+        do {
+            try checkBridgeable(
+                structType: type32,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate struct '\(name)': \(error)")
             return
         }
-
-        let structName = type.name
 
         var fields: [CWriter.Field] = []
-        for field in type.fields {
+        for field in type32.fields {
             guard let field = Self.convert(field: field) else {
-                report("cannot generate struct '\(typedefName)': unsupported field: \(field)")
+                report("cannot generate struct '\(name)': unsupported field: \(field)")
                 return
             }
             fields.append(field)
@@ -404,29 +303,25 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         let generateComments = generateComments
         output.write {
             if generateComments {
-                LineComment("struct '\(typedefName)'")
+                LineComment("struct '\(name)'")
             }
 
             CWriter.Struct(
-                identifier: structName,
+                identifier: name,
                 body: { fields }
-            )
-
-            Typedef(
-                identifier: typedefName,
-                type: Type(struct: structName)
             )
 
             Newline
         }
     }
 
-    public mutating func generate(class: BridgeSupportParser.Class) {
+    private mutating func generate(class: BridgeSupportParser.Class) {
         let name = `class`.name
 
         guard !declaredClasses.contains(name) else {
             return
         }
+        declaredClasses.insert(name)
 
         let generateComments = generateComments
         output.write {
@@ -434,24 +329,24 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                 LineComment("class '\(name)'")
             }
 
-            Typedef(
+            CWriter.Typedef(
                 identifier: name,
-                type: Type(struct: name)
+                type: Type(struct: "objc_object")
             )
 
             Newline
         }
     }
 
-    public mutating func generate(coreFoundationType: CoreFoundationType) {
+    private mutating func generate(coreFoundationType: CoreFoundationType) {
         let name = coreFoundationType.name
 
-        guard let type = coreFoundationType.type32 else {
+        guard let type32 = coreFoundationType.type32 else {
             report("cannot generate CoreFoundation type '\(name)': missing type")
             return
         }
-        guard case let .Pointer(innerType) = type else {
-            report("cannot generate CoreFoundation type '\(name)': unsupported non-pointer type: \(type)")
+        guard case let .Pointer(innerType) = type32 else {
+            report("cannot generate CoreFoundation type '\(name)': unsupported non-pointer type: \(type32)")
             return
         }
 
@@ -468,7 +363,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                 typeSpecifier = .Name("void")
 
             default:
-                report("cannot generate CoreFoundation type '\(name)': unsupported type: \(type)")
+                report("cannot generate CoreFoundation type '\(name)': unsupported type: \(type32)")
                 return
         }
 
@@ -478,7 +373,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                 LineComment("CoreFoundation type '\(name)'")
             }
 
-            Typedef(
+            CWriter.Typedef(
                 identifier: name,
                 type: .Declaration(TypeDeclaration(
                     typeSpecifier: typeSpecifier,
@@ -490,29 +385,34 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
     }
 
-    public mutating func generate(function: BridgeSupportParser.Function) {
+    private mutating func generate(function: BridgeSupportParser.Function) {
         let name = function.name
         let functionType = function.functionType
         let kind = FunctionKind.Function(name: name)
+
+        guard !declaredFunctions.contains(kind) else {
+            return
+        }
+        declaredFunctions.insert(kind)
 
         guard !function.isVariadic else {
             report("cannot generate \(kind): variadic")
             return
         }
 
-        guard checkBridgeable(
-            functionType: functionType,
-            kind: kind,
-            coreFoundationTypeNames: coreFoundationTypeNames,
-            generateBigEndian: generateBigEndian,
-            report: report
-        ) else {
+        do {
+            try checkBridgeable(
+                functionType: functionType,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate \(kind): \(error)")
             return
         }
 
         // Convert function type
 
-        guard case (let returnType, var parameters)? = Self.convert(functionType: functionType) else {
+        guard case (let returnType, var parameters)? = convert(functionType: functionType) else {
             report("cannot generate \(kind): unsupported function type: \(functionType)")
             return
         }
@@ -540,7 +440,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
     }
 
-    public mutating func generate(method: Method, className: String) {
+    private mutating func generate(method: Method, className: String) {
         let selector = method.selector
         let functionType = method.functionType
         let isClassMethod = method.isClassMethod
@@ -550,18 +450,23 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             isClassMethod: isClassMethod
         )
 
+        guard !declaredFunctions.contains(kind) else {
+            return
+        }
+        declaredFunctions.insert(kind)
+
         guard !method.isVariadic else {
             report("cannot generate \(kind): variadic")
             return
         }
 
-        guard checkBridgeable(
-            functionType: functionType,
-            kind: kind,
-            coreFoundationTypeNames: coreFoundationTypeNames,
-            generateBigEndian: generateBigEndian,
-            report: report
-        ) else {
+        do {
+            try checkBridgeable(
+                functionType: functionType,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate \(kind): \(error)")
             return
         }
 
@@ -573,8 +478,8 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
         // Return type
 
-        guard case var (returnType, parameters)? = Self.convert(functionType: functionType) else {
-            report("cannot generate \(kind)': unsupported function type: \(functionType)")
+        guard case var (returnType, parameters)? = convert(functionType: functionType) else {
+            report("cannot generate \(kind): unsupported function type: \(functionType)")
             return
         }
 
@@ -629,31 +534,31 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
     }
 
-    public mutating func generate(constant: Constant) {
+    private mutating func generate(constant: Constant) {
         generate(getterForConstant: constant)
         if !constant.isConst {
             generate(setterForConstant: constant)
         }
     }
 
-    public mutating func generate(getterForConstant constant: Constant) {
+    private mutating func generate(getterForConstant constant: Constant) {
         let name = constant.name
         let kind = FunctionKind.ConstantGetter(name: name)
 
         let functionType = constantGetterFunctionType(constant)
 
-        guard checkBridgeable(
-            functionType: functionType,
-            kind: kind,
-            coreFoundationTypeNames: coreFoundationTypeNames,
-            generateBigEndian: generateBigEndian,
-            report: report
-        ) else {
+        do {
+            try checkBridgeable(
+                functionType: functionType,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate \(kind): \(error)")
             return
         }
 
-        guard case let (returnType, _)? = Self.convert(functionType: functionType) else {
-            report("cannot generate \(kind)': unsupported function type: \(functionType)")
+        guard case let (returnType, _)? = convert(functionType: functionType) else {
+            report("cannot generate \(kind): unsupported function type: \(functionType)")
             return
         }
 
@@ -674,24 +579,24 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
     }
 
-    public mutating func generate(setterForConstant constant: Constant) {
+    private mutating func generate(setterForConstant constant: Constant) {
         let name = constant.name
         let kind = FunctionKind.ConstantSetter(name: name)
 
         let functionType = constantSetterFunctionType(constant)
 
-        guard checkBridgeable(
-            functionType: functionType,
-            kind: kind,
-            coreFoundationTypeNames: coreFoundationTypeNames,
-            generateBigEndian: generateBigEndian,
-            report: report
-        ) else {
+        do {
+            try checkBridgeable(
+                functionType: functionType,
+                generateBigEndian: generateBigEndian
+            )
+        } catch let error {
+            report("cannot generate \(kind): \(error)")
             return
         }
 
-        guard case let (returnType, parameters)? = Self.convert(functionType: functionType) else {
-            report("cannot generate \(kind)': unsupported function type: \(functionType)")
+        guard case let (returnType, parameters)? = convert(functionType: functionType) else {
+            report("cannot generate \(kind): unsupported function type: \(functionType)")
             return
         }
 
@@ -711,7 +616,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
     }
 
-    public mutating func generate(enum: Enum) {
+    private mutating func generate(enum: Enum) {
         let name = `enum`.name
 
         guard let value = `enum`.value32 ?? `enum`.value64 else {
@@ -731,15 +636,15 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
     }
 
-    public mutating func generate(opaque: Opaque) {
+    private mutating func generate(opaque: Opaque) {
         let name = opaque.name
 
-        guard let type = opaque.type32 else {
+        guard let type32 = opaque.type32 else {
             report("cannot generate opaque type '\(name)': missing type")
             return
         }
-        guard case let .Pointer(.Struct(structType)) = type else {
-            report("cannot generate opaque type '\(name)': unsupported type: \(type)")
+        guard case let .Pointer(.Struct(structType)) = type32 else {
+            report("cannot generate opaque type '\(name)': unsupported type: \(type32)")
             return
         }
         guard structType.fields.isEmpty else {
@@ -753,7 +658,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                 LineComment("opaque '\(name)'")
             }
 
-            Typedef(
+            CWriter.Typedef(
                 identifier: name,
                 type: .Declaration(TypeDeclaration(
                     typeSpecifier: .Struct(structType.name),

@@ -46,3 +46,14 @@ OPTIONS:
                           generate implementation for big-endian system (default: --no-big-endian)
   -h, --help              Show help information.
 ```
+
+## Notes
+
+- Only 32-bit is supported
+
+- Pointers are always considered host pointers.
+
+  When allocated in the module and passed to the host, they need to be offset.
+
+  Pointed-to data has host-endianess.
+
