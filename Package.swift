@@ -27,6 +27,14 @@ let package = Package(
                 .product(name: "SystemPackage", package: "swift-system"),
                 "W2C2BridgeGenerator"
             ]
+        ),
+        .executableTarget(
+            name: "SwiftW2C2BridgeGeneratorCommand",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "SystemPackage", package: "swift-system"),
+                "W2C2BridgeGenerator"
+            ]
         )
     ]
 )
