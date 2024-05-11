@@ -1,0 +1,30 @@
+<?xml version='1.0'?>
+<signatures version='1.0'>
+
+<function name='objc_getClass'>
+    <arg name='name' declared_type='char*' type='*' const='true'/>
+    <retval declared_type='id' type='@'/>
+</function>
+
+<class name='String'>
+
+    <method class_method='true' selector='alloc'>
+        <retval declared_type='id' type='@'/>
+    </method>
+
+    <method selector='initWithCString:'>
+        <arg name="raw" declared_type='char*' type='*' const='true'/>
+        <retval declared_type='id' type='@'/>
+    </method>
+
+    <method selector='isEqualToString:'>
+        <arg name='aString' declared_type='String*' type='@' index='0'/>
+        <retval declared_type='BOOL' type='B'/>
+    </method>
+
+    <method selector='log'>
+    </method>
+
+</class>
+
+</signatures>

@@ -1,0 +1,73 @@
+<?xml version='1.0'?>
+<signatures version='1.0'>
+
+<struct name='Point' type='{_Point=&quot;x&quot;f&quot;y&quot;f}'>
+    <field name='x'/>
+    <field name='y'/>
+</struct>
+
+<!--
+    Arguments: Direct
+    Return value: Indirect
+-->
+<function name='MakePoint'>
+    <arg name='x' declared_type='float' type='f'/>
+    <arg name='y' declared_type='float' type='f'/>
+    <retval declared_type='Point' type='{_Point=ff}'/>
+</function>
+
+<!--
+    Arguments: Indirect
+    Return value: Direct
+-->
+<function name='EqualPoints'>
+    <arg name='aPoint' declared_type='Point' type='{_Point=ff}'/>
+    <arg name='bPoint' declared_type='Point' type='{_Point=ff}'/>
+    <retval declared_type='bool' type='B'/>
+</function>
+
+<!--
+    Arguments: Pointer
+    Return value: Direct
+-->
+<function name='EqualPointValues'>
+    <arg name='aPoint' declared_type='Point*' type='^{_Point=ff}'/>
+    <arg name='bPoint' declared_type='Point*' type='^{_Point=ff}'/>
+    <retval declared_type='bool' type='B'/>
+</function>
+
+
+<!--
+    Arguments: Void pointer, direct
+-->
+<!-- TODO
+<function name='GetBytes'>
+    <arg name='buffer' declared_type='void*' type='^v' index='0'/>
+    <arg name='length' declared_type='unsigned int' type='I' index='1'/>
+    <retval declared_type='void' type='v'/>
+</function>
+-->
+
+<!--
+    Arguments: Pointer to CF type
+    Return value: Direct
+-->
+<!-- TODO
+<cftype name='ArrayRef' type='^{__Array=}' />
+<function name='TakeArrayRef'>
+    <arg name='array' declared_type='ArrayRef' type='^{__Array=}'/>
+    <retval declared_type='void' type='v'/>
+</function>
+-->
+
+<!--
+    Arguments: Object (id)
+-->
+<!-- TODO
+<function name='TakeObject'>
+    <arg name='object' type='@' index='0'/>
+    <retval declared_type='void' type='v'/>
+</function>
+-->
+
+</signatures>
