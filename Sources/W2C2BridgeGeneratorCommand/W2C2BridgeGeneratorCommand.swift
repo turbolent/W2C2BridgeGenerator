@@ -12,9 +12,9 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
     )
 
     @ArgumentParser.Option(
-        help: "module name"
+        help: "WebAssembly module name"
     )
-    var moduleName: String = "env"
+    var webAssemblyModuleName: String = "env"
 
     @ArgumentParser.Option(
         name: [.customLong("w2c2-implementation")],
@@ -53,6 +53,14 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
     )
     var generateBigEndian: Bool = false
 
+    @ArgumentParser.Option(
+        name: .customLong("symbols"),
+        help: "generate symbols file when generating C interface file",
+        completion: .file(),
+        transform: { FilePath($0) }
+    )
+    var symbolsFile: FilePath?
+
     func createFile(_ filePath: FilePath) throws -> FileDescriptor {
         try FileDescriptor.open(
             filePath,
@@ -83,7 +91,7 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
 
             var w2c2ImplementationGenerator = W2C2ImplementationGenerator(
                 output: w2c2ImplementationFile,
-                moduleName: moduleName,
+                moduleName: webAssemblyModuleName,
                 generateComments: generateComments,
                 generateBigEndian: generateBigEndian
             )
@@ -98,8 +106,14 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
                 try! cInterfaceFile.close()
             }
 
+            let symbolsOutput = try symbolsFile.map { try createFile($0) }
+            defer {
+                try! symbolsOutput?.close()
+            }
+
             var cInterfaceGenerator = CInterfaceGenerator(
-                output: cInterfaceFile,
+                headerOutput: cInterfaceFile,
+                symbolsOutput: symbolsOutput,
                 generateComments: generateComments,
                 generateBigEndian: generateBigEndian
             )
