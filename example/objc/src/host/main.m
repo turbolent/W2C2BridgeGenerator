@@ -6,7 +6,12 @@
 
 #include "example.h"
 
+// A simple String class, which does not use NSObject,
+// so that we can avoid the need to link against Foundation
+// (which requires dependencies on non-macOS platforms).
+
 @interface String {
+    id isa;
     const char* _raw;
 }
 + (id) alloc;
@@ -17,26 +22,33 @@
 
 @implementation String
 
++ (void) initialize
+{
+    printf("host: +[String initialize]\n");
+}
+
 + (id) alloc
 {
+    printf("host: +[String alloc]\n");
     return class_createInstance(self, 0);
 }
 
 - (id) initWithCString:(const char*)raw
 {
     self->_raw = raw;
-    printf("host: String.initWithCString: %p, %s\n", self, self->_raw);
+    printf("host: -[String initWithCString:]: %p, %s\n", self, raw);
     return self;
 }
 
 - (_Bool) isEqualToString:(String*)aString
 {
+    printf("host: -[String isEqualToString:]: %p, %p\n", self, aString);
     return strcmp(self->_raw, aString->_raw) == 0;
 }
 
 - (void) log
 {
-    printf("host: log: %s\n", self->_raw);
+    printf("host: -[String log]: %p, %s\n", self, self->_raw);
 }
 
 @end

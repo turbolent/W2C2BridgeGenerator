@@ -21,5 +21,5 @@ int main() {
     );
 
     _IM_String_log(string);
-    printf("%d\n", _IM_String_isEqualToString_C(string, string));
+    printf("client: equal: %d\n", _IM_String_isEqualToString_C(string, string));
 }
