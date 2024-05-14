@@ -25,12 +25,20 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
     var swiftModuleName: String
 
     @ArgumentParser.Option(
-        name: .customLong("output-directory"),
-        help: "generate Swift module in output directory",
+        name: .customLong("swift-module-directory"),
+        help: "generate Swift module in directory",
         completion: .directory,
         transform: { FilePath($0) }
     )
-    var outputDirectory: FilePath
+    var swiftModuleDirectory: FilePath
+
+    @ArgumentParser.Option(
+        name: .customLong("w2c2-implementation-directory"),
+        help: "generate w2c2 implementation in directory",
+        completion: .directory,
+        transform: { FilePath($0) }
+    )
+    var w2c2ImplementationDirectory: FilePath
 
     @ArgumentParser.Option(
         name: .customLong("frameworks-directory"),
@@ -136,7 +144,7 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         }
     }
 
-    func writeModulemapFile(frameworks: [Framework], directory: FilePath) throws {
+    func writeModulemap(frameworks: [Framework], directory: FilePath) throws {
         print("Writing modulemap file ...")
 
         var modulemapPath = directory
@@ -177,7 +185,7 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         }
     }
 
-    func generateHeader(framework: Framework, inDirectory directory: FilePath) throws {
+    func generateHeader(for framework: Framework, inDirectory directory: FilePath) throws {
         var headerPath = directory
         headerPath.append("\(framework.name).h")
 
@@ -203,13 +211,13 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
 
         for subframework in framework.subframeworks {
             try generateHeader(
-                framework: subframework,
+                for: subframework,
                 inDirectory: directory
             )
         }
     }
 
-    func generateCInterfaceFile(framework: Framework, inDirectory directory: FilePath) throws {
+    func generateCInterface(for framework: Framework, inDirectory directory: FilePath) throws {
         var cInterfacePath = directory
         cInterfacePath.append("\(framework.name).h")
 
@@ -240,8 +248,36 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         cInterfaceGenerator.generate(definitions: framework.file.definitions)
 
         for subframework in framework.subframeworks {
-            try generateCInterfaceFile(
-                framework: subframework,
+            try generateCInterface(
+                for: subframework,
+                inDirectory: directory
+            )
+        }
+    }
+
+    func generateW2C2Implementation(for framework: Framework, inDirectory directory: FilePath) throws {
+
+        var implementationPath = directory
+        implementationPath.append("\(framework.name).c")
+
+        print("Generating implementation \(implementationPath) ...")
+
+        let w2c2ImplementationFile = try createFile(implementationPath)
+        defer {
+            try! w2c2ImplementationFile.close()
+        }
+
+        var w2c2ImplementationGenerator = W2C2ImplementationGenerator(
+            output: w2c2ImplementationFile,
+            moduleName: webAssemblyModuleName,
+            generateComments: generateComments,
+            generateBigEndian: generateBigEndian
+        )
+        w2c2ImplementationGenerator.generate(definitions: framework.file.definitions)
+
+        for subframework in framework.subframeworks {
+            try generateW2C2Implementation(
+                for: subframework,
                 inDirectory: directory
             )
         }
@@ -250,30 +286,43 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
     mutating func run() throws {
         let frameworks = try parseFrameworks(inDirectory: frameworksDirectory)
 
-        var cInterfaceDirectory = outputDirectory
+        var cInterfaceDirectory = swiftModuleDirectory
         cInterfaceDirectory.append(generatedDirectoryName)
 
-        try FileManager.default.createDirectory(
-            atPath: cInterfaceDirectory.string,
-            withIntermediateDirectories: true
-        )
+        for directory in [
+            swiftModuleDirectory,
+            cInterfaceDirectory,
+            w2c2ImplementationDirectory
+        ] {
+            try FileManager.default.createDirectory(
+                atPath: directory.string,
+                withIntermediateDirectories: true
+            )
+        }
 
-        try writeModulemapFile(
+        try writeModulemap(
             frameworks: frameworks,
-            directory: outputDirectory
+            directory: swiftModuleDirectory
         )
 
         for framework in frameworks {
             try generateHeader(
-                framework: framework,
-                inDirectory: outputDirectory
+                for: framework,
+                inDirectory: swiftModuleDirectory
             )
         }
 
         for framework in frameworks {
-            try generateCInterfaceFile(
-                framework: framework,
+            try generateCInterface(
+                for: framework,
                 inDirectory: cInterfaceDirectory
+            )
+        }
+
+        for framework in frameworks {
+            try generateW2C2Implementation(
+                for: framework,
+                inDirectory: w2c2ImplementationDirectory
             )
         }
     }
