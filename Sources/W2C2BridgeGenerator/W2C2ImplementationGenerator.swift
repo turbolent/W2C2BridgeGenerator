@@ -379,12 +379,16 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 // TODO: implement (convert first field?), then enable in isBridgeable
                 fatalError("unreachable. should be rejected by isBridgeable")
 
-            case .ComplexFloat,.ComplexDouble:
+            case .ComplexFloat, .ComplexDouble:
                 // TODO: implement, then enable in isBridgeable
                 fatalError("unreachable. should be rejected by isBridgeable")
 
-            case .FunctionType, .Unknown, .Pointer:
+            case .FunctionType, .Unknown:
                 fatalError("unreachable. should be rejected by isBridgeable")
+
+            case .Pointer:
+                // NO-OP. unable to convert pointer contents to big-endian
+                return true
 
             case .Array, .Bitfield:
                 // TODO: implement, then enable in isBridgeable
