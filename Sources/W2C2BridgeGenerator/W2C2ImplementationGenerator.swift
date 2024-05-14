@@ -501,7 +501,8 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         var isMemoryAccessed = false
         var temporaryCount = 0
         var argumentConversionStatements: [String] = []
-        var returnValueConversionStatements: [String] = []
+        var bigEndianArgumentConversionStatements: [String] = []
+        var bigEndianReturnValueConversionStatements: [String] = []
 
         func newTemporary() -> String {
             temporaryCount += 1
@@ -533,7 +534,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
             var argumentType = ""
             // TODO: assumes host matches client, i.e. 32-bit little-endian.
-            //  Use generated "client types"
             guard let type = CInterfaceGenerator<Output>.convert(
                 type32: argument.type32,
                 isConst: argument.isConst
@@ -574,7 +574,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     guard convertBigEndian(
                         type32: argument.type32!,
                         name: temp,
-                        conversionStatements: &argumentConversionStatements
+                        conversionStatements: &bigEndianArgumentConversionStatements
                     ) else {
                         report("cannot generate \(kind): cannot convert to big-endian, missing type information: \(argument)")
                         return
@@ -589,7 +589,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         var resultType = ""
         if let returnValue = originalFunctionType.returnValue {
             // TODO: assumes host matches client, i.e. 32-bit little-endian.
-            //  Use generated "client types"
             guard let type = CInterfaceGenerator<Output>.convert(
                 type32: returnValue.type32,
                 isConst: returnValue.isConst
@@ -642,7 +641,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     guard convertBigEndian(
                         type32: returnValue.type32!,
                         name: resultVariableName,
-                        conversionStatements: &returnValueConversionStatements
+                        conversionStatements: &bigEndianReturnValueConversionStatements
                     ) else {
                         report("cannot generate \(kind): cannot convert to big-endian (missing type information): \(returnValue)")
                         return
@@ -653,8 +652,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
         // Write function
 
-        let generateComments = generateComments
-        output.write {
+        output.write { [generateComments] in
             if generateComments {
                 LineComment(kind.description)
             }
@@ -670,6 +668,13 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
                 for conversionStatement in argumentConversionStatements {
                     Raw(conversionStatement)
+                }
+                if !bigEndianArgumentConversionStatements.isEmpty {
+                    Raw("#if WASM_ENDIAN == WASM_BIG_ENDIAN\n")
+                    for conversionStatement in bigEndianArgumentConversionStatements {
+                        Raw(conversionStatement)
+                    }
+                    Raw("#endif\n")
                 }
 
                 // Call statement: call function with arguments,
@@ -722,8 +727,12 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     Raw(";\n")
                 }
 
-                for conversionStatement in returnValueConversionStatements {
-                    Raw(conversionStatement)
+                if !bigEndianReturnValueConversionStatements.isEmpty {
+                    Raw("#if WASM_ENDIAN == WASM_BIG_ENDIAN\n")
+                    for conversionStatement in bigEndianReturnValueConversionStatements {
+                        Raw(conversionStatement)
+                    }
+                    Raw("#endif\n")
                 }
 
                 if let returnPrefix {
