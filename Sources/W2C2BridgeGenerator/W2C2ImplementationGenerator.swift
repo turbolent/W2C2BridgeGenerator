@@ -105,7 +105,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         var parameters: [Parameter] = []
         var parameterPassages: [BasicCABI.FunctionPassage] = []
 
-        for argument in functionType.arguments {
+        for (index, argument) in functionType.arguments.enumerated() {
             guard let type = argument.type32 else {
                 return nil
             }
@@ -116,6 +116,9 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
             // Indicate indirect/pointer passage in parameter
             var name = argument.name
+            if name.isEmpty {
+                name = "p\(index + 1)"
+            }
             if passage.direct {
                 if argument.type32?.isPointerKinded ?? false {
                     name.append("Pointer")
