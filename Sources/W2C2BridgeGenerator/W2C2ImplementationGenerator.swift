@@ -481,24 +481,10 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
         let additionalParameterCount = allParameters.count
 
-        // Rename parameters to avoid name clashes
+        allParameters.append(contentsOf: convertedFunctionType.parameters)
 
-        for var parameter in convertedFunctionType.parameters {
-            guard var parameterName = parameter.identifier else {
-                report("cannot generate \(kind): converted parameter without identifier: \(parameter)")
-                return
-            }
-
-            if parameterName.starts(with: generatorPrefix) {
-                parameterName = generatorPrefix + parameterName
-                parameter = Parameter(
-                    identifier: parameterName,
-                    type: parameter.type
-                )
-            }
-
-            allParameters.append(parameter)
-        }
+        // Ensure all parameters have identifiers, that are unique
+        fixParameterIdentifiers(&allParameters)
 
         // Conversions might access memory and introduce temporaries
 

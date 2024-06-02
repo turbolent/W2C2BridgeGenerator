@@ -422,6 +422,9 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             return
         }
 
+        // Ensure all parameters have identifiers, that are unique
+        fixParameterIdentifiers(&parameters)
+
         // Add void parameter to indicate empty parameter list
         if parameters.isEmpty {
             parameters.append(Parameter(type: .Void))
@@ -525,6 +528,8 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
         parameters.insert(parameter, at: 0)
 
+        // Ensure all parameters have identifiers, that are unique
+        fixParameterIdentifiers(&parameters)
 
         // Write function
         let generateComments = generateComments

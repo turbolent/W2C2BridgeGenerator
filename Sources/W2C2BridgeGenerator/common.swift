@@ -370,3 +370,30 @@ extension BridgeSupportParser.`Type` {
         }
     }
 }
+
+// Ensure all parameters have identifiers, that are unique
+func fixParameterIdentifiers(_ parameters: inout [Parameter]) {
+    var usedIdentifiers: Set<String> = []
+
+    for (index, parameter) in parameters.enumerated() {
+        var identifier = parameter.identifier
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            ?? ""
+        var changed = false
+        if identifier.isEmpty {
+            identifier = "p\(index + 1)"
+            changed = true
+        }
+        while usedIdentifiers.contains(identifier) {
+            identifier.append("_2")
+            changed = true
+        }
+        usedIdentifiers.insert(identifier)
+        if changed {
+            parameters[index] = Parameter(
+                identifier: identifier,
+                type: parameter.type
+            )
+        }
+    }
+}
