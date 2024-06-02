@@ -315,6 +315,15 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                 body: { fields }
             )
 
+            if name.starts(with: "_") {
+                Newline
+
+                CWriter.Typedef(
+                    identifier: `struct`.name,
+                    type: Type(struct: name)
+                )
+            }
+
             Newline
         }
     }
