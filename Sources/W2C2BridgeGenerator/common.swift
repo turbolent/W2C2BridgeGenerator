@@ -289,7 +289,6 @@ extension BridgeSupportParser.`Type` {
         }
     }
 
-    // TODO: handle/add const
     private func buildTypeDeclaration(result: inout TypeDeclaration, isConst: Bool) throws {
         switch self {
             // Signed
@@ -334,10 +333,10 @@ extension BridgeSupportParser.`Type` {
                 if type == .Unknown {
                     type = .Void
                 }
-                result.declarators.append(.Pointer(isConst: false))
+                result.declarators.append(.Pointer(isConst: isConst))
                 try type.buildTypeDeclaration(
                     result: &result,
-                    isConst: isConst
+                    isConst: false
                 )
 
             case let .Array(arrayType):
@@ -360,8 +359,13 @@ extension BridgeSupportParser.`Type` {
             case .Selector:
                 try result.build(name: "SEL", isConst: isConst)
 
+            case let .Const(type):
+                try type.buildTypeDeclaration(
+                    result: &result,
+                    isConst: true
+                )
+
             default:
-                // TODO: Const
                 throw TypeDeclarationError.UnsupportedType(self)
         }
     }
