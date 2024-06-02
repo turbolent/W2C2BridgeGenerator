@@ -227,6 +227,10 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     }
 
     public mutating func generate(method: Method, className: String) {
+          guard !method.ignore else {
+            return
+        }
+
         let selector = method.selector
         let isClassMethod = method.isClassMethod
         let kind = FunctionKind.Method(
@@ -261,6 +265,10 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     }
 
     public mutating func generate(function: BridgeSupportParser.Function) {
+        guard !function.ignore else {
+            return
+        }
+
         let name = function.name
 
         let kind = FunctionKind.Function(name: name)
