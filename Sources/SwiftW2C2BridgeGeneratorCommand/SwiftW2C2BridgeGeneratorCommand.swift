@@ -217,7 +217,11 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         }
     }
 
-    func generateCInterface(for framework: Framework, inDirectory directory: FilePath) throws {
+    func generateCInterface(
+        for framework: Framework,
+        inDirectory directory: FilePath,
+        gatheringStructs structs: inout [Struct]
+    ) throws {
         var cInterfacePath = directory
         cInterfacePath.append("\(framework.name).h")
 
@@ -245,17 +249,30 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
             generateComments: generateComments,
             generateBigEndian: generateBigEndian
         )
-        cInterfaceGenerator.generate(definitions: framework.file.definitions)
+
+        let definitions = framework.file.definitions
+        cInterfaceGenerator.generate(definitions: definitions)
+
+        for definition in definitions {
+            if case let .Struct(`struct`) = definition {
+                structs.append(`struct`)
+            }
+        }
 
         for subframework in framework.subframeworks {
             try generateCInterface(
                 for: subframework,
-                inDirectory: directory
+                inDirectory: directory,
+                gatheringStructs: &structs
             )
         }
     }
 
-    func generateW2C2Implementation(for framework: Framework, inDirectory directory: FilePath) throws {
+    func generateW2C2Implementation(
+        for framework: Framework,
+        inDirectory directory: FilePath,
+        structs: [Struct]
+    ) throws {
 
         var implementationPath = directory
         implementationPath.append("\(framework.name).c")
@@ -271,14 +288,16 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
             output: w2c2ImplementationFile,
             moduleName: webAssemblyModuleName,
             generateComments: generateComments,
-            generateBigEndian: generateBigEndian
+            generateBigEndian: generateBigEndian,
+            structs: structs
         )
         w2c2ImplementationGenerator.generate(definitions: framework.file.definitions)
 
         for subframework in framework.subframeworks {
             try generateW2C2Implementation(
                 for: subframework,
-                inDirectory: directory
+                inDirectory: directory,
+                structs: structs
             )
         }
     }
@@ -312,17 +331,21 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
             )
         }
 
+        var structs: [Struct] = []
+
         for framework in frameworks {
             try generateCInterface(
                 for: framework,
-                inDirectory: cInterfaceDirectory
+                inDirectory: cInterfaceDirectory,
+                gatheringStructs: &structs
             )
         }
 
         for framework in frameworks {
             try generateW2C2Implementation(
                 for: framework,
-                inDirectory: w2c2ImplementationDirectory
+                inDirectory: w2c2ImplementationDirectory,
+                structs: structs
             )
         }
     }

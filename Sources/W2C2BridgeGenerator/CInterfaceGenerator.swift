@@ -42,10 +42,37 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
     public static func convert(
         type32: BridgeSupportParser.`Type`?,
-        isConst: Bool
+        declaredType: String?,
+        structTypes: [String: StructType]
     ) -> CWriter.`Type`? {
+
+        if let declaredType, let type32 {
+            if isOrPointerTo(type32, predicate: {
+                switch $0 {
+                    // - Char: sometimes type encoding '*', theoretically a char*,
+                    //     is used even for non-char types, e.g. uint8_t*
+                    // - Bool: type encoding 'B' is used for both BOOL and _Bool, which are not the same,
+                    //     see the special considerations in https://developer.apple.com/documentation/objectivec/bool#1817698
+                    //
+                    // We can't use the declared type for all types, as they may refer to types
+                    // that are not declared in the BridgeSupport file, e.g. enums, and other classes.
+
+                    case .Char, .Bool:
+                        return true
+
+                    case let .Struct(structType):
+                        return structTypes.keys.contains(structType.name)
+
+                    default:
+                        return false
+                }
+            }) {
+                return .Raw(declaredType)
+            }
+        }
+
         guard let typeDeclaration = type32.flatMap({
-            $0.typeDeclaration(isConst: isConst)
+            $0.typeDeclaration(isConst: false)
         }) else {
             return nil
         }
@@ -67,7 +94,8 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
         return Self.convert(
             type32: returnValue.type32,
-            isConst: returnValue.isConst
+            declaredType: returnValue.declaredType,
+            structTypes: [:]
         )
     }
 
@@ -86,7 +114,8 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
         guard let parameterType = Self.convert(
             type32: argument.type32,
-            isConst: argument.isConst
+            declaredType: argument.declaredType,
+            structTypes: [:]
         ) else {
             return nil
         }
@@ -118,7 +147,13 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             guard let type = convert(returnValue: returnValue) else {
                 return nil
             }
-            returnType = type
+            if returnValue.isConst {
+                var rawReturnType = "const "
+                type.write(identifier: nil, to: &rawReturnType)
+                returnType = .Raw(rawReturnType)
+            } else {
+                returnType = type
+            }
         } else {
             returnType = .Void
         }
@@ -127,11 +162,19 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
         var parameters: [Parameter] = []
         for argument in functionType.arguments {
-            guard let parameter = convert(
+            guard var parameter = convert(
                 argument: argument,
                 name: argument.name
             ) else {
                 return nil
+            }
+            if argument.isConst {
+                var rawParameterType = "const "
+                parameter.type.write(identifier: nil, to: &rawParameterType)
+                parameter = Parameter(
+                    identifier: parameter.identifier,
+                    type: .Raw(rawParameterType)
+                )
             }
             parameters.append(parameter)
         }

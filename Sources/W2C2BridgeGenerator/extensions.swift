@@ -8,7 +8,7 @@ extension Definition {
     }
 }
 
-extension FileDescriptor: @retroactive TextOutputStream {
+extension FileDescriptor: TextOutputStream {
     public mutating func write(_ string: String) {
         try! writeAll(string.utf8)
     }
@@ -52,7 +52,7 @@ extension StructType {
     }
 }
 
-extension ReturnValue: @retroactive CustomStringConvertible {
+extension ReturnValue: CustomStringConvertible {
 
     public var description: String {
         var result = ""
@@ -74,7 +74,7 @@ extension ReturnValue: @retroactive CustomStringConvertible {
     }
 }
 
-extension Argument: @retroactive CustomStringConvertible {
+extension Argument: CustomStringConvertible {
 
     public var description: String {
         var result = ""

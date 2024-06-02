@@ -20,12 +20,35 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         output: Output,
         moduleName: String,
         generateComments: Bool,
-        generateBigEndian: Bool
+        generateBigEndian: Bool,
+        structs: [BridgeSupportParser.Struct]
     ) {
         self.output = Writer(stream: output)
         self.escapedModuleName = Self.convert(name: moduleName)
         self.generateComments = generateComments
         self.generateBigEndian = generateBigEndian
+
+        for `struct` in structs {
+            index(struct: `struct`)
+        }
+    }
+
+    private mutating func index(struct: BridgeSupportParser.Struct) {
+        guard let type = `struct`.type32 else {
+            report("failed to index struct: missing 32-bit type: \(`struct`)")
+            return
+        }
+        let name = type.name.isEmpty ? `struct`.name : type.name
+        guard !name.isEmpty else {
+            report("failed to index struct: missing name: \(`struct`)")
+            return
+        }
+        let existing = structTypes[name]
+        if let existing, type != existing {
+            report("failed to index struct: conflict: \(name)")
+            return
+        }
+        structTypes[name] = type
     }
 
     private func report(_ message: some StringProtocol) {
@@ -164,20 +187,13 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             case let .Function(function):
                 generate(function: function)
 
-            case let .Struct(`struct`):
-                generate(struct: `struct`)
-
             case let .Class(`class`):
                 generate(class: `class`)
-
-            case .CoreFoundationType:
-                // Already handled
-                break
 
             case let .Constant(constant):
                 generate(constant: constant)
 
-            case .Enum, .Opaque:
+            case .Enum, .Opaque, .Struct, .CoreFoundationType:
                 // NO-OP
                 break
 
@@ -188,35 +204,6 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                     report("unsupported definition: \(kind)")
                 }
         }
-    }
-
-    public mutating func generate(struct: BridgeSupportParser.Struct) {
-        guard let type32 = `struct`.type32 else {
-            report("cannot generate struct definition '\(`struct`.name)': missing 32-bit type")
-            return
-        }
-
-        let name = type32.name
-
-        guard !name.isEmpty else {
-            return
-        }
-
-        do {
-            try checkBridgeable(
-                structType: type32,
-                generateBigEndian: generateBigEndian
-            )
-        } catch let error {
-            report("cannot generate struct '\(name)': \(error)")
-            return
-        }
-
-        structTypes[name] = type32
-
-        // TODO: implementation currently uses host types,
-        //   assumes host matches client, i.e. 32-bit little-endian.
-        //   Add support for big-endian and 64-bit.
     }
 
     public mutating func generate(class: BridgeSupportParser.Class) {
@@ -326,7 +313,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         type32: BridgeSupportParser.`Type`,
         name: String,
         conversionStatements: inout [String]
-    ) -> Bool {
+    ) {
 
         func addConversion(type: String) {
             conversionStatements.append("swap_\(type)(&\(name));\n")
@@ -335,76 +322,59 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
         switch type32 {
             case .Void, .ID, .Class, .Selector:
                 // NO-OP
-                return true
+                break
 
             case .Bool, .Char, .UnsignedChar:
                 // size = 1. NO-OP
-                return true
+                break
 
             case .Short:
                 addConversion(type: "s")
-                return true
 
             case .UnsignedShort:
                 addConversion(type: "S")
-                return true
 
             case .Int:
                 addConversion(type: "i")
-                return true
 
             case .UnsignedInt:
                 addConversion(type: "I")
-                return true
 
             case .Long:
                 addConversion(type: "l")
-                return true
 
             case .UnsignedLong:
                 addConversion(type: "L")
-                return true
 
             case .LongLong:
                 addConversion(type: "q")
-                return true
 
             case .UnsignedLongLong:
                 addConversion(type: "Q")
-                return true
 
             case .Float:
                 addConversion(type: "f")
-                return true
 
             case .Double:
                 addConversion(type: "d")
-                return true
 
             case let .Struct(structType):
-                let structName = structType.name
-                let declaredStructType = structTypes[structName]
 
-                for (fieldIndex, field) in structType.fields.enumerated() {
-                    var fieldName = field.name
-                    if fieldName.isEmpty, let declaredField = declaredStructType?.fields[fieldIndex] {
-                        fieldName = declaredField.name
-                    }
-
-                    guard !fieldName.isEmpty else {
-                        return false
-                    }
-
-                    guard convertBigEndian(
-                        type32: field.type32!,
-                        name: "\(name).\(fieldName)",
-                        conversionStatements: &conversionStatements
-                    ) else {
-                        return false
-                    }
+                guard let structType = structTypes[structType.name] else {
+                    fatalError("unreachable: missing struct type: \(structType.name)")
                 }
 
-                return true
+                for field in structType.fields {
+                    guard !field.name.isEmpty else {
+                        fatalError("unreachable: struct field without name")
+                    }
+
+                    convertBigEndian(
+                        type32: field.type32!,
+                        name: "\(name).\(field.name)",
+                        conversionStatements: &conversionStatements
+                    )
+                }
 
             case .Union:
                 // TODO: implement (convert first field?), then enable in isBridgeable
@@ -419,7 +389,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
             case .Pointer:
                 // NO-OP. unable to convert pointer contents to big-endian
-                return true
+                break
 
             case .Array, .Bitfield:
                 // TODO: implement, then enable in isBridgeable
@@ -553,11 +523,12 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
             let argument = originalFunctionType.arguments[parameterIndex]
             let passage = convertedFunctionType.parameterPassages[parameterIndex]
 
-            var argumentType = ""
+            var argumentType = argument.isConst ? "const " : ""
             // TODO: assumes host matches client, i.e. 32-bit little-endian.
             guard let type = CInterfaceGenerator<Output>.convert(
                 type32: argument.type32,
-                isConst: argument.isConst
+                declaredType: argument.declaredType,
+                structTypes: structTypes
             ) else {
                 report("cannot generate \(kind): unsupported argument type: \(argument)")
                 return
@@ -592,14 +563,11 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 let temp = newTemporary()
                 argumentConversionStatements.append("\(argumentType) \(temp) = \(newMemoryDereference(type: argumentType, offset: parameterName));\n")
                 if generateBigEndian {
-                    guard convertBigEndian(
+                    convertBigEndian(
                         type32: argument.type32!,
                         name: temp,
                         conversionStatements: &bigEndianArgumentConversionStatements
-                    ) else {
-                        report("cannot generate \(kind): cannot convert to big-endian, missing type information: \(argument)")
-                        return
-                    }
+                    )
                 }
                 callArguments.append(temp)
             }
@@ -609,10 +577,15 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
         var resultType = ""
         if let returnValue = originalFunctionType.returnValue {
+            if returnValue.isConst {
+                resultType = "const "
+            }
+
             // TODO: assumes host matches client, i.e. 32-bit little-endian.
             guard let type = CInterfaceGenerator<Output>.convert(
                 type32: returnValue.type32,
-                isConst: returnValue.isConst
+                declaredType: returnValue.declaredType,
+                structTypes: structTypes
             ) else {
                 report("cannot generate \(kind): unsupported return value: \(returnValue)")
                 return
@@ -659,14 +632,11 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
                 returnPrefix = "\(newMemoryDereference(type: resultType, offset: resultParameterName)) = "
                 if generateBigEndian {
                     let returnValue = originalFunctionType.returnValue!
-                    guard convertBigEndian(
+                    convertBigEndian(
                         type32: returnValue.type32!,
                         name: resultVariableName,
                         conversionStatements: &bigEndianReturnValueConversionStatements
-                    ) else {
-                        report("cannot generate \(kind): cannot convert to big-endian (missing type information): \(returnValue)")
-                        return
-                    }
+                    )
                 }
             }
         }

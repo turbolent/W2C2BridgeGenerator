@@ -397,3 +397,17 @@ func fixParameterIdentifiers(_ parameters: inout [Parameter]) {
         }
     }
 }
+
+func isOrPointerTo(_ type: BridgeSupportParser.`Type`, predicate: (BridgeSupportParser.`Type`) -> Bool) -> Bool {
+    var typeToTest = type
+    repeat {
+        switch typeToTest {
+            case .Pointer(let innerType):
+                typeToTest = innerType
+            case .Const(let innerType):
+                typeToTest = innerType
+            default:
+                return predicate(typeToTest)
+        }
+    } while true
+}
