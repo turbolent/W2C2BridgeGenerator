@@ -14,6 +14,7 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     private var structTypes: [String: StructType] = [:]
 
     private var reportedUnsupportedDefinitionKinds: Set<String> = []
+    private var declaredFunctions: Set<FunctionKind> = []
 
     public init(
         output: Output,
@@ -228,6 +229,17 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
     public mutating func generate(method: Method, className: String) {
         let selector = method.selector
         let isClassMethod = method.isClassMethod
+        let kind = FunctionKind.Method(
+            className: className,
+            selector: selector,
+            isClassMethod: isClassMethod
+        )
+
+        guard !declaredFunctions.contains(kind) else {
+            return
+        }
+        declaredFunctions.insert(kind)
+
         let identifier = convert(
             importName: methodFunctionName(
                 forClassName: className,
@@ -250,6 +262,14 @@ public struct W2C2ImplementationGenerator<Output: TextOutputStream> {
 
     public mutating func generate(function: BridgeSupportParser.Function) {
         let name = function.name
+
+        let kind = FunctionKind.Function(name: name)
+
+        guard !declaredFunctions.contains(kind) else {
+            return
+        }
+        declaredFunctions.insert(kind)
+
         let identifier = convert(importName: name)
         generateFunction(
             kind: .Function(name: name),
