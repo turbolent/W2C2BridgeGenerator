@@ -388,6 +388,10 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
     }
 
     private mutating func generate(function: BridgeSupportParser.Function) {
+        guard !function.ignore else {
+            return
+        }
+
         let name = function.name
         let functionType = function.functionType
         let kind = FunctionKind.Function(name: name)
@@ -449,6 +453,10 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
     }
 
     private mutating func generate(method: Method, className: String) {
+        guard !method.ignore else {
+            return
+        }
+
         let selector = method.selector
         let functionType = method.functionType
         let isClassMethod = method.isClassMethod
