@@ -305,8 +305,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             fields.append(field)
         }
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment("struct '\(name)'")
             }
@@ -328,8 +327,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         }
         declaredClasses.insert(name)
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment("class '\(name)'")
             }
@@ -372,8 +370,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
                 return
         }
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment("CoreFoundation type '\(name)'")
             }
@@ -432,8 +429,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
 
         // Write function
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment(kind.description)
             }
@@ -532,8 +528,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
         fixParameterIdentifiers(&parameters)
 
         // Write function
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment(kind.description)
             }
@@ -580,8 +575,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             return
         }
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment(kind.description)
             }
@@ -618,8 +612,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             return
         }
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment(kind.description)
             }
@@ -670,8 +663,7 @@ public struct CInterfaceGenerator<Output: TextOutputStream> {
             return
         }
 
-        let generateComments = generateComments
-        headerOutput.write {
+        headerOutput.write { [generateComments] in
             if generateComments {
                 LineComment("opaque '\(name)'")
             }
