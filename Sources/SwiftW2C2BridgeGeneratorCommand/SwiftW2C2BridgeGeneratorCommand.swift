@@ -349,6 +349,29 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         }
     }
 
+    func generateSymbolsFile(inDirectory directory: FilePath) throws {
+        var symbolsOutputPath = directory
+        symbolsOutputPath.append("symbols")
+
+        print("Generating symbols file \(symbolsOutputPath) ...")
+
+        let symbolsOutput = try createFile(symbolsOutputPath)
+        defer {
+            try! symbolsOutput.close()
+        }
+
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.string)
+        for symbolsFile in files.filter({ $0.hasSuffix(".symbols") }) {
+            let symbolsFilePath = directory.appending(symbolsFile)
+
+            if let data = FileManager.default.contents(atPath: symbolsFilePath.string) {
+                _ =  try data.withUnsafeBytes {
+                    try symbolsOutput.write($0)
+                }
+            }
+        }
+    }
+
     mutating func run() throws {
         let frameworks = try parseFrameworks(inDirectory: frameworksDirectory)
 
@@ -391,6 +414,10 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
                 inDirectory: cInterfaceDirectory,
                 gatheringStructs: &structs
             )
+        }
+
+        if generateSymbolsFile {
+            try generateSymbolsFile(inDirectory: cInterfaceDirectory)
         }
 
         // Generate implementation files and w2c2 implementations for all frameworks,
