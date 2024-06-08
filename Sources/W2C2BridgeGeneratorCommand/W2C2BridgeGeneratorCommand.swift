@@ -81,6 +81,13 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
             definitions.append(contentsOf: file.definitions)
         }
 
+        var structs: [Struct] = []
+        for definition in definitions {
+            if case let .Struct(`struct`) = definition {
+                structs.append(`struct`)
+            }
+        }
+
         // Generate W2C2 implementations for all definitions
 
         if let w2c2ImplementationFile {
@@ -93,7 +100,8 @@ struct W2C2BridgeGeneratorCommand: ParsableCommand {
                 output: w2c2ImplementationFile,
                 moduleName: webAssemblyModuleName,
                 generateComments: generateComments,
-                generateBigEndian: generateBigEndian
+                generateBigEndian: generateBigEndian,
+                structs: structs
             )
             w2c2ImplementationGenerator.generate(definitions: definitions)
         }
