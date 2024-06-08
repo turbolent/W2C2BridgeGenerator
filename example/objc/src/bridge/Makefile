@@ -4,3 +4,6 @@ example.h example.c: ../../example.bridgesupport
 		--w2c2-implementation example.c \
 		--big-endian
 
+.PHONY: clean
+clean:
+	rm -f example.c example.h

@@ -5,3 +5,8 @@ CFLAGS = --target=wasm32-wasi -Wl,--import-undefined
 
 example.wasm: main.c
 	$(CC) $(CFLAGS) -o $@ $<
+
+.PHONY: clean
+clean:
+	rm -f example.wasm
+
