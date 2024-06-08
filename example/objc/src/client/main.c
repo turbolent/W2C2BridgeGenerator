@@ -7,6 +7,8 @@ struct objc_object {
     Class isa;
 };
 
+typedef signed char BOOL;
+
 #include "../bridge/example.h"
 
 extern void* w2c2BridgeMemoryOffset(void*);

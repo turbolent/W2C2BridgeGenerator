@@ -21,7 +21,7 @@ U32 env___IM_String_initWithCString_C(void *_instance, U32 _self, U32 rawPointer
 
 U32 env___IM_String_isEqualToString_C(void *_instance, U32 _self, U32 aStringPointer) {
     id _t1 = (id)aStringPointer;
-    _Bool _result = (_Bool)[(String*)_self isEqualToString:_t1];
+    BOOL _result = (BOOL)[(String*)_self isEqualToString:_t1];
     return (U32)_result;
 }
 

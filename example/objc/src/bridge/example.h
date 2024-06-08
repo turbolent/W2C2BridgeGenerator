@@ -3,13 +3,13 @@
 
 typedef struct objc_object String;
 
-id objc_getClass(const char *name);
+id objc_getClass(const char* name);
 
 String *_CM_String_alloc(Class _class);
 
-String *_IM_String_initWithCString_C(String *_self, const char *raw);
+String *_IM_String_initWithCString_C(String *_self, const char* raw);
 
-_Bool _IM_String_isEqualToString_C(String *_self, String* aString);
+BOOL _IM_String_isEqualToString_C(String *_self, String* aString);
 
 void _IM_String_log(String *_self);
 

@@ -6,9 +6,11 @@ struct _Point {
     float y;
 };
 
+typedef struct _Point Point;
+
 struct _Point MakePoint(float x, float y);
 
-_Bool EqualPoints(struct _Point aPoint, struct _Point bPoint);
+bool EqualPoints(struct _Point aPoint, struct _Point bPoint);
 
-_Bool EqualPointValues(struct _Point *aPoint, struct _Point *bPoint);
+bool EqualPointValues(struct _Point *aPoint, struct _Point *bPoint);
 
