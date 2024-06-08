@@ -280,14 +280,49 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         }
     }
 
+    func generateImplementation(for framework: Framework, inDirectory directory: FilePath) throws {
+        let filename = "\(framework.name).m"
+
+        var implementationPath = directory
+        implementationPath.append(filename)
+
+        // Skip generating the implementation file if it already exists.
+        // This allows extending the default implementation file with additional content,
+        // after the initial generation.
+
+        guard !FileManager.default.fileExists(atPath: implementationPath.string) else {
+            return
+        }
+
+        print("Generating implementation \(implementationPath) ...")
+
+        var implementationFile = try createFile(implementationPath)
+        defer {
+            try! implementationFile.close()
+        }
+
+        implementationFile.write("""
+            #include "\(generatedDirectoryName)/\(filename)"
+
+            """)
+
+        for subframework in framework.subframeworks {
+            try generateImplementation(
+                for: subframework,
+                inDirectory: directory
+            )
+        }
+    }
+
     func generateW2C2Implementation(
         for framework: Framework,
         inDirectory directory: FilePath,
         structs: [Struct]
     ) throws {
+        let filename = "\(framework.name).m"
 
         var implementationPath = directory
-        implementationPath.append("\(framework.name).c")
+        implementationPath.append(filename)
 
         print("Generating implementation \(implementationPath) ...")
 
@@ -320,10 +355,14 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         var cInterfaceDirectory = swiftModuleDirectory
         cInterfaceDirectory.append(generatedDirectoryName)
 
+        var innerW2c2ImplementationDirectory = w2c2ImplementationDirectory
+        innerW2c2ImplementationDirectory.append(generatedDirectoryName)
+
         for directory in [
             swiftModuleDirectory,
             cInterfaceDirectory,
-            w2c2ImplementationDirectory
+            w2c2ImplementationDirectory,
+            innerW2c2ImplementationDirectory
         ] {
             try FileManager.default.createDirectory(
                 atPath: directory.string,
@@ -336,16 +375,17 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
             directory: swiftModuleDirectory
         )
 
+        // Generate headers and C interfaces for all frameworks,
+        // gathering all structs.
+
+        var structs: [Struct] = []
+
         for framework in frameworks {
             try generateHeader(
                 for: framework,
                 inDirectory: swiftModuleDirectory
             )
-        }
 
-        var structs: [Struct] = []
-
-        for framework in frameworks {
             try generateCInterface(
                 for: framework,
                 inDirectory: cInterfaceDirectory,
@@ -353,10 +393,18 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
             )
         }
 
+        // Generate implementation files and w2c2 implementations for all frameworks,
+        // using the gathered structs.
+
         for framework in frameworks {
+            try generateImplementation(
+                for: framework,
+                inDirectory: w2c2ImplementationDirectory
+            )
+
             try generateW2C2Implementation(
                 for: framework,
-                inDirectory: w2c2ImplementationDirectory,
+                inDirectory: innerW2c2ImplementationDirectory,
                 structs: structs
             )
         }
