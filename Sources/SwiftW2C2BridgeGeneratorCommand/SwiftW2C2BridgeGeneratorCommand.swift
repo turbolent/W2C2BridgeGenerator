@@ -69,10 +69,19 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
     )
     var generateBigEndian: Bool = false
 
+    @ArgumentParser.Option(
+        name: .customLong("exclude"),
+        help: "do not generate bindings for frameworks with these names"
+    )
+    var exclude: [String] = []
+
     @ArgumentParser.Argument(
         help: "only generate bindings for frameworks with these names"
     )
     var names: [String] = []
+
+    lazy var excludeSet = Set(exclude)
+    lazy var namesSet = Set(names)
 
     func createFile(_ filePath: FilePath) throws -> FileDescriptor {
         try FileDescriptor.open(
@@ -83,7 +92,7 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
         )
     }
 
-    private func parseFrameworks(inDirectory frameworksDirectory: FilePath) throws -> [Framework] {
+    private mutating func parseFrameworks(inDirectory frameworksDirectory: FilePath) throws -> [Framework] {
         let frameworkNames = (try? FileManager.default.contentsOfDirectory(atPath: frameworksDirectory.string)) ?? []
 
         return try frameworkNames.compactMap { frameworkName in
@@ -120,14 +129,17 @@ struct SwiftW2C2BridgeGeneratorCommand: ParsableCommand {
 
 
             let file: BridgeSupportParser.File
-            if names.isEmpty || names.contains(frameworkStem) {
-
+            if (names.isEmpty || namesSet.contains(frameworkStem))
+                && !excludeSet.contains(frameworkStem)
+            {
                 print("Parsing bridgesupport file for framework \(frameworkStem) ...")
 
                 let parser = Parser(contentsOf: URL(fileURLWithPath: bridgesupportPath.string))!
                 file = try parser.parse()
 
             } else {
+                print("Skipping bridgesupport file for framework \(frameworkStem)")
+
                 file = BridgeSupportParser.File()
             }
 
