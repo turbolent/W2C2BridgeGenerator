@@ -6,7 +6,8 @@ W2C2BridgeGenerator generates:
 - C interface code that can be used in a WebAssembly module
 - C/Objective-C code implementing the interface, bridging passed arguments to the host and bridging the result back to the WebAssembly module
 
-At the moment, only hosts that match the WebAssembly architecture are supported, i.e., 32-bit little-endian systems.
+At the moment only 32-bit hosts are supported. Both little-endian and big-endian hosts are supported (pass `--big-endian` to generate the necessary translation code).
+
 
 ## Compilation
 
